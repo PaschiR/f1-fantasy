@@ -148,6 +148,47 @@
   .toast.success { border-color: var(--green); }
   .toast.error { border-color: var(--red); }
 
+  /* Live tab */
+  .live-status-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 18px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 20px; font-size: 0.85rem; }
+  .live-badge { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 0.78rem; padding: 4px 12px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .live-badge.is-live { background: rgba(230,0,0,0.18); color: var(--red); border: 1px solid var(--red); animation: livePulse 1.5s infinite; }
+  .live-badge.is-soon { background: rgba(255,135,0,0.18); color: var(--accent2); border: 1px solid var(--accent2); }
+  .live-badge.is-done { background: rgba(0,212,106,0.12); color: var(--green); border: 1px solid var(--green); }
+  .live-badge.is-none { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+  @keyframes livePulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
+  .live-race-name { font-weight: 700; font-size: 1rem; }
+  .live-refresh-info { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .live-countdown { font-size: 0.75rem; color: var(--muted); }
+  .live-refresh-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: 600; transition: background 0.2s; }
+  .live-refresh-btn:hover { background: var(--border); }
+
+  .live-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 800px) { .live-grid { grid-template-columns: 1fr; } }
+
+  .live-pos-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .live-pos-table th { background: var(--surface2); padding: 8px 10px; text-align: left; font-weight: 600; color: var(--muted); text-transform: uppercase; font-size: 0.7rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .live-pos-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .live-pos-table tr:hover td { background: var(--surface2); }
+  .live-pos-table .pos-num { font-weight: 800; font-size: 1rem; color: var(--muted); width: 32px; }
+  .live-pos-table .pos-1 { color: var(--gold); }
+  .live-pos-table .pos-2 { color: var(--silver); }
+  .live-pos-table .pos-3 { color: var(--bronze); }
+  .live-owner-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; flex-shrink: 0; }
+
+  .live-team-cards { display: flex; flex-direction: column; gap: 12px; }
+  .live-team-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .live-team-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .live-team-name { font-weight: 700; font-size: 1rem; }
+  .live-team-total { font-size: 1.4rem; font-weight: 800; }
+  .live-team-delta { font-size: 0.8rem; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+  .live-team-delta.pos { background: rgba(0,212,106,0.15); color: var(--green); }
+  .live-team-delta.neg { background: rgba(230,0,0,0.15); color: var(--red); }
+  .live-team-delta.zero { background: var(--surface2); color: var(--muted); }
+  .live-driver-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
+  .live-driver-row:last-child { border-bottom: none; }
+  .live-driver-pos { font-weight: 700; width: 28px; }
+  .live-driver-pts { font-weight: 700; font-size: 0.82rem; }
+
   /* Team detail tab */
   .team-selector { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 24px; }
   .team-btn { padding: 8px 20px; border-radius: 8px; border: 2px solid var(--border); background: var(--surface); color: var(--muted); font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: all 0.2s; }
@@ -185,7 +226,8 @@
 </div>
 
 <div class="nav" id="mainNav">
-  <div class="nav-tab active" onclick="showTab('standings')" data-tab="standings">🏆 Rangliste</div>
+  <div class="nav-tab" onclick="showTab('standings')" data-tab="standings">🏆 Rangliste</div>
+  <div class="nav-tab" onclick="showTab('live')" data-tab="live">🔴 Live</div>
   <div class="nav-tab" onclick="showTab('racedetail')" data-tab="racedetail">🔍 Renn-Details</div>
   <div class="nav-tab" onclick="showTab('teams')" data-tab="teams">👥 Teams</div>
   <div class="nav-tab" onclick="showTab('drivers')" data-tab="drivers">👤 Fahrer</div>
@@ -193,6 +235,12 @@
 </div>
 
 <div class="main">
+  <!-- LIVE TAB -->
+  <div class="tab-content" id="tab-live">
+    <div class="live-status-bar" id="liveStatusBar"></div>
+    <div id="liveContent"></div>
+  </div>
+
   <!-- STANDINGS TAB -->
   <div class="tab-content active" id="tab-standings">
     <div class="section-title">🏆 Gesamtwertung <span class="badge" id="raceCountBadge">0 Rennen</span></div>
@@ -1066,6 +1114,294 @@ function renderTeamDetail(player) {
 }
 
 // ============================================================
+// LIVE RACE VIEW  (OpenF1 API — real-time data)
+// ============================================================
+const OPENF1_BASE = 'https://api.openf1.org/v1';
+
+// Map OpenF1 session.location → our German race name
+const OPENF1_LOCATION_MAP = {
+  'Melbourne': 'Australien', 'Shanghai': 'China', 'Suzuka': 'Japan',
+  'Miami Gardens': 'USA', 'Montréal': 'Kanada', 'Monte Carlo': 'Monaco',
+  'Barcelona': 'Spanien', 'Madrid': 'Spanien II', 'Spielberg': 'Österreich',
+  'Silverstone': 'Großbritannien', 'Spa-Francorchamps': 'Belgien',
+  'Budapest': 'Ungarn', 'Zandvoort': 'Niederlande', 'Monza': 'Italien',
+  'Baku': 'Aserbaidschan', 'Marina Bay': 'Singapur', 'Austin': 'USA II',
+  'Mexico City': 'Mexiko', 'São Paulo': 'Brasilien', 'Las Vegas': 'USA III',
+  'Lusail': 'Katar', 'Yas Marina': 'Abu Dhabi',
+};
+
+let _liveAutoRefresh = null;
+let _liveCountdown = null;
+let _liveNextRefreshAt = null;
+
+function clearLiveIntervals() {
+  if (_liveAutoRefresh) { clearInterval(_liveAutoRefresh); _liveAutoRefresh = null; }
+  if (_liveCountdown)   { clearInterval(_liveCountdown);   _liveCountdown = null; }
+}
+
+async function renderLiveTab() {
+  clearLiveIntervals();
+  document.getElementById('liveStatusBar').innerHTML = '';
+  document.getElementById('liveContent').innerHTML = '<div style="color:var(--muted);padding:24px 0">🔄 Lade Live-Daten…</div>';
+  await fetchAndRenderLive();
+  // Auto-refresh every 30 s
+  _liveNextRefreshAt = Date.now() + 30000;
+  _liveAutoRefresh = setInterval(async () => {
+    _liveNextRefreshAt = Date.now() + 30000;
+    await fetchAndRenderLive();
+  }, 30000);
+  _liveCountdown = setInterval(() => {
+    const el = document.getElementById('liveCountdownText');
+    if (el && _liveNextRefreshAt) {
+      const s = Math.max(0, Math.round((_liveNextRefreshAt - Date.now()) / 1000));
+      el.textContent = `Aktualisierung in ${s}s`;
+    }
+  }, 1000);
+}
+
+async function fetchAndRenderLive() {
+  try {
+    // 1. Get all 2026 Race sessions (session_name="Race", not Sprint)
+    const allSessions = await fetch(`${OPENF1_BASE}/sessions?year=2026&session_type=Race`).then(r => r.json());
+    const raceSessions = allSessions.filter(s => s.session_name === 'Race' && !s.is_cancelled);
+
+    const now = new Date();
+    // Find the session closest to now
+    raceSessions.sort((a, b) => {
+      const dA = Math.abs(now - new Date(a.date_start));
+      const dB = Math.abs(now - new Date(b.date_start));
+      return dA - dB;
+    });
+    const session = raceSessions[0];
+    if (!session) { renderLiveNoRace(null); return; }
+
+    const tStart = new Date(session.date_start);
+    const tEnd   = new Date(session.date_end);
+    const isLive   = now >= tStart && now <= tEnd;
+    const isRecent = now > tEnd   && now <= new Date(tEnd.getTime() + 3 * 3600000);
+    const isSoon   = now < tStart && now >= new Date(tStart.getTime() - 3 * 3600000);
+
+    if (!isLive && !isRecent && !isSoon) { renderLiveNoRace(session); return; }
+
+    // 2. Fetch drivers for this session
+    const driversRaw = await fetch(`${OPENF1_BASE}/drivers?session_key=${session.session_key}`).then(r => r.json());
+    const driverMap = {}; // driver_number → OpenF1 driver obj
+    driversRaw.forEach(d => { driverMap[d.driver_number] = d; });
+
+    // 3. Fetch race positions
+    let posUrl = `${OPENF1_BASE}/position?session_key=${session.session_key}`;
+    if (isLive) {
+      // Only last 12 minutes to keep payload small
+      const since = new Date(now.getTime() - 12 * 60000).toISOString();
+      posUrl += `&date>=${encodeURIComponent(since)}`;
+    }
+    const allRacePos = await fetch(posUrl).then(r => r.json());
+    const latestRacePos = {}; // driver_number → pos record
+    allRacePos.forEach(p => {
+      if (!latestRacePos[p.driver_number] || p.date > latestRacePos[p.driver_number].date)
+        latestRacePos[p.driver_number] = p;
+    });
+
+    // 4. Fetch qualifying positions for this meeting (to calc qual pts + pos gained)
+    const qualSessions = allSessions.filter(s => s.meeting_key === session.meeting_key
+      && (s.session_name === 'Qualifying' || s.session_name === 'Sprint Qualifying'));
+    // Prefer "Qualifying" over sprint qualifying
+    const qualSession = qualSessions.find(s => s.session_name === 'Qualifying') || qualSessions[0];
+    const qualPosMap = {}; // normName → qual position
+    if (qualSession) {
+      const allQualPos = await fetch(`${OPENF1_BASE}/position?session_key=${qualSession.session_key}`).then(r => r.json());
+      const latestQualPos = {};
+      allQualPos.forEach(p => {
+        if (!latestQualPos[p.driver_number] || p.date > latestQualPos[p.driver_number].date)
+          latestQualPos[p.driver_number] = p;
+      });
+      Object.entries(latestQualPos).forEach(([num, pos]) => {
+        const d = driverMap[num];
+        if (d) qualPosMap[normalizeName(d.last_name)] = pos.position;
+      });
+    }
+
+    // 5. Build sorted standings
+    const liveStandings = Object.entries(latestRacePos).map(([num, posRec]) => {
+      const d = driverMap[num];
+      if (!d) return null;
+      const racePos  = posRec.position;
+      const norm     = normalizeName(d.last_name);
+      const qualPos  = qualPosMap[norm] || null;
+      const racePts  = calcRacePts(racePos);
+      const qPts     = qualPos ? calcQualPts(qualPos) : 0;
+      const posGained = qualPos ? Math.max(0, qualPos - racePos) : 0;
+      return { pos: racePos, norm, lastName: d.last_name, abbr: d.name_acronym || d.last_name.substring(0,3).toUpperCase(),
+               teamF1: d.team_name || '', qualPos, racePts, qualPts: qPts, posGained,
+               projectedPts: qPts + racePts + posGained };
+    }).filter(Boolean).sort((a, b) => a.pos - b.pos);
+
+    renderLiveUI(session, liveStandings, isLive, isRecent, isSoon);
+  } catch(e) {
+    console.error('Live fetch error:', e);
+    document.getElementById('liveStatusBar').innerHTML = '';
+    document.getElementById('liveContent').innerHTML =
+      `<div style="color:var(--red);padding:24px 0">⚠️ Fehler beim Laden der Live-Daten: ${e.message}</div>`;
+  }
+}
+
+function renderLiveUI(session, liveStandings, isLive, isRecent, isSoon) {
+  const raceName = OPENF1_LOCATION_MAP[session.location] || session.location;
+  const circuitLabel = session.circuit_short_name || session.location;
+
+  // ── Status bar ────────────────────────────────────────────
+  let badgeClass = 'is-none', badgeText = '–';
+  if (isLive)   { badgeClass = 'is-live'; badgeText = '🔴 LIVE'; }
+  else if (isRecent) { badgeClass = 'is-done'; badgeText = '✅ Beendet'; }
+  else if (isSoon)   { badgeClass = 'is-soon'; badgeText = '⏰ Bald'; }
+
+  const tStart = new Date(session.date_start);
+  const timeStr = tStart.toLocaleString('de-DE', { weekday:'short', day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+
+  document.getElementById('liveStatusBar').innerHTML = `
+    <span class="live-badge ${badgeClass}">${badgeText}</span>
+    <span class="live-race-name">${raceName} — ${circuitLabel}</span>
+    <span style="color:var(--muted);font-size:0.8rem">${timeStr} Uhr</span>
+    <div class="live-refresh-info">
+      <span class="live-countdown" id="liveCountdownText">Aktualisierung in 30s</span>
+      <button class="live-refresh-btn" onclick="fetchAndRenderLive()">↻ Jetzt</button>
+    </div>`;
+
+  if (liveStandings.length === 0) {
+    document.getElementById('liveContent').innerHTML =
+      '<div style="color:var(--muted);padding:24px 0">Noch keine Positionsdaten verfügbar. Rennstart abwarten.</div>';
+    return;
+  }
+
+  // Build reverse lookup: normName → player(s)
+  const driverToPlayer = {};
+  Object.entries(TEAMS).forEach(([player, team]) => {
+    team.drivers.forEach(d => { driverToPlayer[normalizeName(d)] = player; });
+  });
+
+  // ── Left panel: live positions table ──────────────────────
+  const posRows = liveStandings.map(dr => {
+    const player = driverToPlayer[dr.norm];
+    const pColor = player ? TEAMS[player].color : 'transparent';
+    const posClass = dr.pos <= 3 ? `pos-${dr.pos}` : '';
+    const deltaStr = dr.qualPos
+      ? (dr.qualPos - dr.pos > 0 ? `<span style="color:var(--green)">▲${dr.qualPos - dr.pos}</span>`
+        : dr.qualPos - dr.pos < 0 ? `<span style="color:var(--red)">▼${Math.abs(dr.qualPos - dr.pos)}</span>`
+        : `<span style="color:var(--muted)">—</span>`)
+      : '<span style="color:var(--muted)">?</span>';
+    const ptsColor = dr.projectedPts > 0 ? 'var(--green)' : dr.projectedPts < 0 ? 'var(--red)' : 'var(--muted)';
+    return `<tr>
+      <td class="pos-num ${posClass}">${dr.pos}</td>
+      <td>
+        ${player ? `<span class="live-owner-dot" style="background:${pColor}" title="${player}"></span>` : ''}
+        <strong>${dr.lastName}</strong>${constructorBadge(dr.lastName)}
+      </td>
+      <td style="color:var(--muted);font-size:0.78rem">${dr.qualPos ? `Q${dr.qualPos}` : '–'}</td>
+      <td>${deltaStr}</td>
+      <td style="color:${ptsColor};font-weight:700;text-align:right">${dr.projectedPts > 0 ? '+' : ''}${dr.projectedPts}</td>
+    </tr>`;
+  }).join('');
+
+  const posTable = `
+    <div class="section-title">🏁 Aktuelle Positionen</div>
+    <div style="overflow-x:auto;">
+      <table class="live-pos-table">
+        <thead><tr>
+          <th>#</th><th>Fahrer</th><th>Qual</th><th>Δ</th><th style="text-align:right">Proj. Pkt</th>
+        </tr></thead>
+        <tbody>${posRows}</tbody>
+      </table>
+    </div>`;
+
+  // ── Right panel: team projections ─────────────────────────
+  // Pre-race total = standings total (already computed without today's race since RACE_DATA is empty for it)
+  const standings = computeStandings();
+  const preRaceTotals = {};
+  standings.forEach(s => { preRaceTotals[s.player] = s.total; });
+
+  // Compute projected race pts per team
+  const teamProjections = Object.keys(TEAMS).map(player => {
+    const teamDrivers = TEAMS[player].drivers;
+    let projectedRacePts = 0;
+    const driverDetails = teamDrivers.map(d => {
+      const norm = normalizeName(d);
+      const live = liveStandings.find(l => l.norm === norm);
+      const pts = live ? live.projectedPts : 0;
+      projectedRacePts += pts;
+      return { name: d, live, pts };
+    });
+    const preTotal = preRaceTotals[player] || 0;
+    return { player, color: TEAMS[player].color, preTotal, projectedRacePts,
+             newTotal: preTotal + projectedRacePts, driverDetails };
+  }).sort((a, b) => b.newTotal - a.newTotal);
+
+  const teamCards = teamProjections.map((t, rank) => {
+    const delta = t.projectedRacePts;
+    const deltaClass = delta > 0 ? 'pos' : delta < 0 ? 'neg' : 'zero';
+    const deltaStr = delta > 0 ? `+${delta}` : `${delta}`;
+    const rankBadge = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : `#${rank+1}`;
+    const driverRows = t.driverDetails.map(dd => {
+      const racePos = dd.live ? dd.live.pos : '?';
+      const posClass = racePos <= 3 ? `pos-${racePos}` : '';
+      const ptsColor = dd.pts > 0 ? 'var(--green)' : dd.pts < 0 ? 'var(--red)' : 'var(--muted)';
+      return `<div class="live-driver-row">
+        <span class="live-driver-pos live-pos-table ${posClass}" style="${racePos <=3 ? `color:var(--${racePos===1?'gold':racePos===2?'silver':'bronze'})` : 'color:var(--muted)'}">${racePos !== '?' ? `P${racePos}` : '–'}</span>
+        <span style="flex:1">${dd.name}${constructorBadge(dd.name)}</span>
+        <span class="live-driver-pts" style="color:${ptsColor}">${dd.pts > 0 ? '+' : ''}${dd.pts}</span>
+      </div>`;
+    }).join('');
+    return `<div class="live-team-card" style="border-color:${t.color}33">
+      <div class="live-team-header">
+        <span style="font-size:1.1rem">${rankBadge}</span>
+        <span class="live-team-name" style="color:${t.color}">${t.player}</span>
+        <span class="live-team-total" style="color:${t.color}">${t.newTotal}</span>
+        <span class="live-team-delta ${deltaClass}">${deltaStr} heute</span>
+        <span style="color:var(--muted);font-size:0.75rem;margin-left:auto">${t.preTotal} + ${delta}</span>
+      </div>
+      ${driverRows}
+    </div>`;
+  }).join('');
+
+  const teamsPanel = `
+    <div class="section-title">📊 Team-Prognose (live)</div>
+    <div class="live-team-cards">${teamCards}</div>`;
+
+  document.getElementById('liveContent').innerHTML = `
+    <div class="live-grid">
+      <div>${posTable}</div>
+      <div>${teamsPanel}</div>
+    </div>`;
+}
+
+function renderLiveNoRace(lastSession) {
+  document.getElementById('liveStatusBar').innerHTML = `
+    <span class="live-badge is-none">⬛ Kein aktives Rennen</span>
+    <div class="live-refresh-info">
+      <button class="live-refresh-btn" onclick="fetchAndRenderLive()">↻ Prüfen</button>
+    </div>`;
+
+  let nextInfo = '';
+  if (lastSession) {
+    // Find next upcoming race session
+    const now = new Date();
+    const tStart = new Date(lastSession.date_start);
+    if (tStart > now) {
+      const raceName = OPENF1_LOCATION_MAP[lastSession.location] || lastSession.location;
+      const timeStr = tStart.toLocaleString('de-DE', { weekday:'long', day:'2-digit', month:'long', hour:'2-digit', minute:'2-digit' });
+      nextInfo = `<p style="margin-top:12px;color:var(--muted)">Nächstes Rennen: <strong style="color:var(--text)">${raceName}</strong> — ${timeStr} Uhr</p>`;
+    }
+  }
+
+  document.getElementById('liveContent').innerHTML = `
+    <div style="padding:32px 0;text-align:center">
+      <div style="font-size:3rem">🏎️</div>
+      <div style="font-size:1.1rem;font-weight:700;margin-top:12px">Kein Rennen gerade aktiv</div>
+      <div style="color:var(--muted);margin-top:6px">Die Live-Ansicht wird automatisch aktiv, sobald ein Rennen läuft.</div>
+      ${nextInfo}
+    </div>`;
+}
+
+// ============================================================
 // TAB NAVIGATION
 // ============================================================
 function showTab(tab) {
@@ -1074,6 +1410,8 @@ function showTab(tab) {
   document.getElementById(`tab-${tab}`).classList.add('active');
   document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
 
+  if (tab === 'live') renderLiveTab();
+  else clearLiveIntervals(); // stop polling when navigating away
   if (tab === 'racedetail') { renderHistory(); renderRaceSelect(); }
   if (tab === 'teams') renderTeamTab();
   if (tab === 'drivers') renderDriversTable();
