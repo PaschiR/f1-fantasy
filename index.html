@@ -49,7 +49,7 @@
   /* Standings */
   .standings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
   .player-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; position: relative; overflow: hidden; transition: border-color 0.2s, transform 0.2s; }
-  .player-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .player-card:hover { border-color: var(--accent); transform: translateY(-2px); cursor: pointer; }
   .player-card.rank-1 { border-color: var(--gold); background: linear-gradient(135deg, var(--surface) 0%, #1a1500 100%); }
   .player-card.rank-2 { border-color: var(--silver); }
   .player-card.rank-3 { border-color: var(--bronze); }
@@ -391,7 +391,7 @@ function renderStandings() {
     const cardClass = rank <= 3 ? `rank-${rank}` : '';
     const drivers = TEAMS[s.player].drivers;
     const color = TEAMS[s.player].color;
-    return `<div class="player-card ${cardClass}">
+    return `<div class="player-card ${cardClass}" onclick="selectTeam('${s.player}');showTab('teams')" style="cursor:pointer" title="${s.player}s Team ansehen">
       <div class="player-rank rank-${rank}">#${rank}</div>
       <div class="player-name"><span class="rank-badge ${badgeClass}">${rank}</span>${s.player}</div>
       <div class="player-pts" style="color:${color}">${s.total}</div>
