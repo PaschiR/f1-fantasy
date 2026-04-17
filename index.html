@@ -118,6 +118,22 @@
   .chart-legend-line { width: 24px; height: 3px; border-radius: 2px; flex-shrink: 0; }
   .progress-svg { display: block; }
 
+  /* Schedule / Calendar */
+  .schedule-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+  .schedule-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; position: relative; overflow: hidden; }
+  .schedule-card.done { border-left: 4px solid var(--green); }
+  .schedule-card.next { border-left: 4px solid var(--accent); box-shadow: 0 0 12px rgba(230,0,0,0.15); }
+  .schedule-card.future { border-left: 4px solid var(--border); opacity: 0.75; }
+  .schedule-card .round { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .schedule-card .race-name { font-size: 1rem; font-weight: 700; margin-bottom: 2px; }
+  .schedule-card .circuit-name { font-size: 0.78rem; color: var(--muted); margin-bottom: 10px; }
+  .schedule-card .schedule-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 0.78rem; }
+  .schedule-card .meta-item { display: flex; align-items: center; gap: 5px; color: var(--muted); }
+  .schedule-card .status-badge { position: absolute; top: 14px; right: 14px; font-size: 0.68rem; font-weight: 700; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .status-badge.done { background: rgba(34,197,94,0.15); color: var(--green); }
+  .status-badge.next { background: rgba(230,0,0,0.15); color: var(--accent); }
+  .status-badge.future { background: var(--surface2); color: var(--muted); }
+
   /* Status indicator */
   .api-status { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; }
   .api-dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -158,6 +174,7 @@
   <div class="nav-tab" onclick="showTab('history')" data-tab="history">📊 Rennergebnisse</div>
   <div class="nav-tab" onclick="showTab('racedetail')" data-tab="racedetail">🔍 Renn-Details</div>
   <div class="nav-tab" onclick="showTab('drivers')" data-tab="drivers">👤 Fahrer</div>
+  <div class="nav-tab" onclick="showTab('schedule')" data-tab="schedule">🗓️ Kalender</div>
 </div>
 
 <div class="main">
@@ -201,6 +218,12 @@
     <div class="section-title">👤 Fahrerübersicht</div>
     <div class="race-history" id="driversTable"></div>
   </div>
+
+  <!-- SCHEDULE TAB -->
+  <div class="tab-content" id="tab-schedule">
+    <div class="section-title">🗓️ Rennkalender 2026</div>
+    <div id="scheduleGrid"></div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -221,9 +244,9 @@ const TEAMS = {
 
 // All 24 races in order (Australia = index 0, does NOT count)
 const RACES = [
-  'Australien', 'China', 'Japan', 'Bahrain', 'Saudi-Arabien', 'USA',
-  'Kanada', 'Monaco', 'Spanien', 'Österreich', 'Großbritannien', 'Belgien',
-  'Ungarn', 'Niederlande', 'Italien', 'Spanien II', 'Aserbaidschan', 'Singapur',
+  'Australien', 'China', 'Japan', 'USA', 'Kanada', 'Monaco',
+  'Spanien', 'Österreich', 'Großbritannien', 'Belgien', 'Ungarn',
+  'Niederlande', 'Italien', 'Spanien II', 'Aserbaidschan', 'Singapur',
   'USA II', 'Mexiko', 'Brasilien', 'USA III', 'Katar', 'Abu Dhabi'
 ];
 
@@ -240,8 +263,6 @@ const RACE_DATA = {
   'Australien':    {},
   'China':         {},
   'Japan':         {},
-  'Bahrain':       null,  // CANCELED
-  'Saudi-Arabien': null,  // CANCELED
   'USA':           {},
   'Kanada':        {},
   'Monaco':        {},
@@ -265,7 +286,7 @@ const RACE_DATA = {
 
 // FIRST_RACE_INDEX: 0 = Australien, 1 = China (first counting race)
 const FIRST_COUNTING_RACE = 1; // China is first counting race
-const CANCELED_RACES = new Set(['Bahrain', 'Saudi-Arabien']);
+const CANCELED_RACES = new Set(); // No canceled races in 2026
 
 // Computed: per-player per-race points
 function getPlayerRacePoints(player, race) {
@@ -746,6 +767,73 @@ function renderDriversTable() {
 }
 
 // ============================================================
+// SCHEDULE TAB
+// ============================================================
+// Stores raw schedule data fetched from API (set during fetchLatestResults)
+let SCHEDULE_DATA = [];
+
+async function renderSchedule() {
+  const el = document.getElementById('scheduleGrid');
+  if (!el) return;
+
+  // If we already have schedule data, just render
+  if (SCHEDULE_DATA.length === 0) {
+    el.innerHTML = '<div style="color:var(--muted);padding:20px">Lade Kalender...</div>';
+    try {
+      const r = await fetch(`${API_BASE}races.json?limit=30`);
+      const data = await r.json();
+      SCHEDULE_DATA = data.MRData.RaceTable.Races;
+    } catch(e) {
+      el.innerHTML = '<div style="color:var(--muted);padding:20px">⚠️ Kalender konnte nicht geladen werden.</div>';
+      return;
+    }
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const nextRace = SCHEDULE_DATA.find(r => r.date >= today);
+
+  const FLAG_MAP = {
+    'Australia': '🇦🇺', 'China': '🇨🇳', 'Japan': '🇯🇵', 'USA': '🇺🇸',
+    'Canada': '🇨🇦', 'Monaco': '🇲🇨', 'Spain': '🇪🇸', 'Austria': '🇦🇹',
+    'UK': '🇬🇧', 'Belgium': '🇧🇪', 'Hungary': '🇭🇺', 'Netherlands': '🇳🇱',
+    'Italy': '🇮🇹', 'Azerbaijan': '🇦🇿', 'Singapore': '🇸🇬', 'Mexico': '🇲🇽',
+    'Brazil': '🇧🇷', 'Qatar': '🇶🇦', 'UAE': '🇦🇪', 'Las Vegas': '🇺🇸',
+  };
+
+  const getFlag = country => {
+    const match = Object.keys(FLAG_MAP).find(k => country.includes(k));
+    return match ? FLAG_MAP[match] : '🏁';
+  };
+
+  const formatDate = dateStr => {
+    const d = new Date(dateStr + 'T12:00:00');
+    return d.toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  el.innerHTML = `<div class="schedule-grid">${SCHEDULE_DATA.map(race => {
+    const isDone = race.date < today;
+    const isNext = race.date === nextRace?.date;
+    const gameName = API_NAME_MAP[race.raceName];
+    const hasData = gameName && RACE_DATA[gameName] && Object.keys(RACE_DATA[gameName]).length > 0;
+    const statusClass = isDone ? 'done' : isNext ? 'next' : 'future';
+    const statusLabel = isDone ? 'Abgeschlossen' : isNext ? 'Nächstes Rennen' : 'Ausstehend';
+    const flag = getFlag(race.Circuit.Location.country);
+
+    return `<div class="schedule-card ${statusClass}">
+      <span class="status-badge ${statusClass}">${statusLabel}</span>
+      <div class="round">Runde ${race.round}</div>
+      <div class="race-name">${flag} ${race.raceName}</div>
+      <div class="circuit-name">${race.Circuit.circuitName}</div>
+      <div class="schedule-meta">
+        <div class="meta-item">📅 ${formatDate(race.date)}</div>
+        <div class="meta-item">📍 ${race.Circuit.Location.locality}, ${race.Circuit.Location.country}</div>
+        ${hasData ? `<div class="meta-item" style="color:var(--green)">✓ Ergebnisse vorhanden</div>` : ''}
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+// ============================================================
 // TAB NAVIGATION
 // ============================================================
 function showTab(tab) {
@@ -757,6 +845,7 @@ function showTab(tab) {
   if (tab === 'history') renderHistory();
   if (tab === 'racedetail') renderRaceSelect();
   if (tab === 'drivers') renderDriversTable();
+  if (tab === 'schedule') renderSchedule();
 }
 
 // ============================================================
@@ -773,19 +862,17 @@ const API_NAME_MAP = {
   'Australian Grand Prix':      'Australien',
   'Chinese Grand Prix':         'China',
   'Japanese Grand Prix':        'Japan',
-  'Bahrain Grand Prix':         'Bahrain',
-  'Saudi Arabian Grand Prix':   'Saudi-Arabien',
   'Miami Grand Prix':           'USA',
   'Canadian Grand Prix':        'Kanada',
   'Monaco Grand Prix':          'Monaco',
-  'Spanish Grand Prix':         'Spanien',
+  'Barcelona Grand Prix':       'Spanien',
+  'Spanish Grand Prix':         'Spanien II',
   'Austrian Grand Prix':        'Österreich',
   'British Grand Prix':         'Großbritannien',
   'Belgian Grand Prix':         'Belgien',
   'Hungarian Grand Prix':       'Ungarn',
   'Dutch Grand Prix':           'Niederlande',
   'Italian Grand Prix':         'Italien',
-  'Emilia Romagna Grand Prix':  'Spanien II',  // update if 2026 calendar differs
   'Azerbaijan Grand Prix':      'Aserbaidschan',
   'Singapore Grand Prix':       'Singapur',
   'United States Grand Prix':   'USA II',
@@ -795,6 +882,7 @@ const API_NAME_MAP = {
   'Las Vegas Grand Prix':       'USA III',
   'Qatar Grand Prix':           'Katar',
   'Abu Dhabi Grand Prix':       'Abu Dhabi',
+  'Brazilian Grand Prix':       'Brasilien',
 };
 
 // Scoring rules (as per your Excel)
