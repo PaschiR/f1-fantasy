@@ -1161,82 +1161,108 @@ async function renderLiveTab() {
 
 async function fetchAndRenderLive() {
   try {
-    // 1. Get all 2026 Race sessions (session_name="Race", not Sprint)
-    const allSessions = await fetch(`${OPENF1_BASE}/sessions?year=2026&session_type=Race`).then(r => r.json());
-    const raceSessions = allSessions.filter(s => s.session_name === 'Race' && !s.is_cancelled);
+    // 1. Get all 2026 sessions: both Race-type and Qualifying-type
+    const [raceSessRaw, qualSessRaw] = await Promise.all([
+      fetch(`${OPENF1_BASE}/sessions?year=2026&session_type=Race`).then(r => r.json()),
+      fetch(`${OPENF1_BASE}/sessions?year=2026&session_type=Qualifying`).then(r => r.json()),
+    ]);
+
+    // Qualifying sessions: "Qualifying" only (not Sprint Qualifying)
+    const qualifyingSessions = qualSessRaw.filter(s => s.session_name === 'Qualifying' && !s.is_cancelled);
+    // Race sessions: "Race" only (not Sprint)
+    const raceSessions = raceSessRaw.filter(s => s.session_name === 'Race' && !s.is_cancelled);
+    // All candidate sessions sorted by start time
+    const allCandidates = [...qualifyingSessions, ...raceSessions];
 
     const now = new Date();
-    // Find the session closest to now
-    raceSessions.sort((a, b) => {
-      const dA = Math.abs(now - new Date(a.date_start));
-      const dB = Math.abs(now - new Date(b.date_start));
-      return dA - dB;
+    // Find the session closest to now (live > recent within 3h > soonest upcoming)
+    // Priority: currently live first, then most recently ended (within 3h), then nearest future
+    const scored = allCandidates.map(s => {
+      const tS = new Date(s.date_start), tE = new Date(s.date_end);
+      const isLive   = now >= tS && now <= tE;
+      const isRecent = now > tE && now <= new Date(tE.getTime() + 3 * 3600000);
+      const isSoon   = now < tS && now >= new Date(tS.getTime() - 3 * 3600000);
+      const dist     = Math.abs(now - tS);
+      return { s, isLive, isRecent, isSoon, dist };
     });
-    const session = raceSessions[0];
-    if (!session) { renderLiveNoRace(null); return; }
+    // Prefer: live > recent > soon > closest future
+    const live   = scored.find(x => x.isLive);
+    const recent = scored.filter(x => x.isRecent).sort((a,b) => a.dist - b.dist)[0];
+    const soon   = scored.filter(x => x.isSoon).sort((a,b) => a.dist - b.dist)[0];
+    const chosen = live || recent || soon;
 
-    const tStart = new Date(session.date_start);
-    const tEnd   = new Date(session.date_end);
-    const isLive   = now >= tStart && now <= tEnd;
-    const isRecent = now > tEnd   && now <= new Date(tEnd.getTime() + 3 * 3600000);
-    const isSoon   = now < tStart && now >= new Date(tStart.getTime() - 3 * 3600000);
+    if (!chosen) {
+      // Find next future session to show in "no race" screen
+      const nextFuture = allCandidates.filter(s => new Date(s.date_start) > now)
+        .sort((a,b) => new Date(a.date_start) - new Date(b.date_start))[0];
+      renderLiveNoRace(nextFuture || null); return;
+    }
 
-    if (!isLive && !isRecent && !isSoon) { renderLiveNoRace(session); return; }
+    const { s: session, isLive, isRecent, isSoon } = chosen;
+    const isQualifying = session.session_name === 'Qualifying';
 
     // 2. Fetch drivers for this session
     const driversRaw = await fetch(`${OPENF1_BASE}/drivers?session_key=${session.session_key}`).then(r => r.json());
-    const driverMap = {}; // driver_number → OpenF1 driver obj
+    const driverMap = {};
     driversRaw.forEach(d => { driverMap[d.driver_number] = d; });
 
-    // 3. Fetch race positions
+    // 3. Fetch positions for this session
     let posUrl = `${OPENF1_BASE}/position?session_key=${session.session_key}`;
     if (isLive) {
-      // Only last 12 minutes to keep payload small
       const since = new Date(now.getTime() - 12 * 60000).toISOString();
       posUrl += `&date>=${encodeURIComponent(since)}`;
     }
-    const allRacePos = await fetch(posUrl).then(r => r.json());
-    const latestRacePos = {}; // driver_number → pos record
-    allRacePos.forEach(p => {
-      if (!latestRacePos[p.driver_number] || p.date > latestRacePos[p.driver_number].date)
-        latestRacePos[p.driver_number] = p;
+    const allPos = await fetch(posUrl).then(r => r.json());
+    const latestPos = {};
+    allPos.forEach(p => {
+      if (!latestPos[p.driver_number] || p.date > latestPos[p.driver_number].date)
+        latestPos[p.driver_number] = p;
     });
 
-    // 4. Fetch qualifying positions for this meeting (to calc qual pts + pos gained)
-    const qualSessions = allSessions.filter(s => s.meeting_key === session.meeting_key
-      && (s.session_name === 'Qualifying' || s.session_name === 'Sprint Qualifying'));
-    // Prefer "Qualifying" over sprint qualifying
-    const qualSession = qualSessions.find(s => s.session_name === 'Qualifying') || qualSessions[0];
+    // 4. For Race sessions: also need qualifying positions (for posGained + qual pts)
     const qualPosMap = {}; // normName → qual position
-    if (qualSession) {
-      const allQualPos = await fetch(`${OPENF1_BASE}/position?session_key=${qualSession.session_key}`).then(r => r.json());
-      const latestQualPos = {};
-      allQualPos.forEach(p => {
-        if (!latestQualPos[p.driver_number] || p.date > latestQualPos[p.driver_number].date)
-          latestQualPos[p.driver_number] = p;
-      });
-      Object.entries(latestQualPos).forEach(([num, pos]) => {
-        const d = driverMap[num];
-        if (d) qualPosMap[normalizeName(d.last_name)] = pos.position;
-      });
+    if (!isQualifying) {
+      // Find the qualifying session for the same meeting
+      const meetingQual = qualifyingSessions.find(s => s.meeting_key === session.meeting_key);
+      if (meetingQual) {
+        const allQualPos = await fetch(`${OPENF1_BASE}/position?session_key=${meetingQual.session_key}`).then(r => r.json());
+        const latestQualPos = {};
+        allQualPos.forEach(p => {
+          if (!latestQualPos[p.driver_number] || p.date > latestQualPos[p.driver_number].date)
+            latestQualPos[p.driver_number] = p;
+        });
+        // Use drivers from the RACE session (same meeting, same grid)
+        Object.entries(latestQualPos).forEach(([num, pos]) => {
+          const d = driverMap[num];
+          if (d) qualPosMap[normalizeName(d.last_name)] = pos.position;
+        });
+      }
     }
 
     // 5. Build sorted standings
-    const liveStandings = Object.entries(latestRacePos).map(([num, posRec]) => {
+    const liveStandings = Object.entries(latestPos).map(([num, posRec]) => {
       const d = driverMap[num];
       if (!d) return null;
-      const racePos  = posRec.position;
-      const norm     = normalizeName(d.last_name);
-      const qualPos  = qualPosMap[norm] || null;
-      const racePts  = calcRacePts(racePos);
-      const qPts     = qualPos ? calcQualPts(qualPos) : 0;
-      const posGained = qualPos ? Math.max(0, qualPos - racePos) : 0;
-      return { pos: racePos, norm, lastName: d.last_name, abbr: d.name_acronym || d.last_name.substring(0,3).toUpperCase(),
-               teamF1: d.team_name || '', qualPos, racePts, qualPts: qPts, posGained,
-               projectedPts: qPts + racePts + posGained };
+      const pos  = posRec.position;
+      const norm = normalizeName(d.last_name);
+
+      if (isQualifying) {
+        // Qualifying: only qual pts, no posGained
+        const qPts = calcQualPts(pos);
+        return { pos, norm, lastName: d.last_name,
+                 qualPts: qPts, racePts: 0, posGained: 0, projectedPts: qPts };
+      } else {
+        // Race: qual pts (from earlier session) + race pts + pos gained
+        const qualPos   = qualPosMap[norm] || null;
+        const racePts   = calcRacePts(pos);
+        const qPts      = qualPos ? calcQualPts(qualPos) : 0;
+        const posGained = qualPos ? Math.max(0, qualPos - pos) : 0;
+        return { pos, norm, lastName: d.last_name, qualPos,
+                 qualPts: qPts, racePts, posGained, projectedPts: qPts + racePts + posGained };
+      }
     }).filter(Boolean).sort((a, b) => a.pos - b.pos);
 
-    renderLiveUI(session, liveStandings, isLive, isRecent, isSoon);
+    renderLiveUI(session, liveStandings, isLive, isRecent, isSoon, isQualifying);
   } catch(e) {
     console.error('Live fetch error:', e);
     document.getElementById('liveStatusBar').innerHTML = '';
@@ -1245,15 +1271,16 @@ async function fetchAndRenderLive() {
   }
 }
 
-function renderLiveUI(session, liveStandings, isLive, isRecent, isSoon) {
+function renderLiveUI(session, liveStandings, isLive, isRecent, isSoon, isQualifying) {
   const raceName = OPENF1_LOCATION_MAP[session.location] || session.location;
   const circuitLabel = session.circuit_short_name || session.location;
+  const sessionLabel = isQualifying ? 'Qualifying' : 'Rennen';
 
   // ── Status bar ────────────────────────────────────────────
   let badgeClass = 'is-none', badgeText = '–';
-  if (isLive)   { badgeClass = 'is-live'; badgeText = '🔴 LIVE'; }
-  else if (isRecent) { badgeClass = 'is-done'; badgeText = '✅ Beendet'; }
-  else if (isSoon)   { badgeClass = 'is-soon'; badgeText = '⏰ Bald'; }
+  if (isLive)        { badgeClass = 'is-live'; badgeText = `🔴 LIVE — ${sessionLabel}`; }
+  else if (isRecent) { badgeClass = 'is-done'; badgeText = `✅ ${sessionLabel} beendet`; }
+  else if (isSoon)   { badgeClass = 'is-soon'; badgeText = `⏰ ${sessionLabel} bald`; }
 
   const tStart = new Date(session.date_start);
   const timeStr = tStart.toLocaleString('de-DE', { weekday:'short', day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
@@ -1269,83 +1296,91 @@ function renderLiveUI(session, liveStandings, isLive, isRecent, isSoon) {
 
   if (liveStandings.length === 0) {
     document.getElementById('liveContent').innerHTML =
-      '<div style="color:var(--muted);padding:24px 0">Noch keine Positionsdaten verfügbar. Rennstart abwarten.</div>';
+      `<div style="color:var(--muted);padding:24px 0">Noch keine Positionsdaten verfügbar. ${sessionLabel}start abwarten.</div>`;
     return;
   }
 
-  // Build reverse lookup: normName → player(s)
+  // Build reverse lookup: normName → player
   const driverToPlayer = {};
   Object.entries(TEAMS).forEach(([player, team]) => {
     team.drivers.forEach(d => { driverToPlayer[normalizeName(d)] = player; });
   });
 
-  // ── Left panel: live positions table ──────────────────────
+  // ── Left panel: positions table ───────────────────────────
   const posRows = liveStandings.map(dr => {
     const player = driverToPlayer[dr.norm];
     const pColor = player ? TEAMS[player].color : 'transparent';
     const posClass = dr.pos <= 3 ? `pos-${dr.pos}` : '';
-    const deltaStr = dr.qualPos
-      ? (dr.qualPos - dr.pos > 0 ? `<span style="color:var(--green)">▲${dr.qualPos - dr.pos}</span>`
-        : dr.qualPos - dr.pos < 0 ? `<span style="color:var(--red)">▼${Math.abs(dr.qualPos - dr.pos)}</span>`
-        : `<span style="color:var(--muted)">—</span>`)
-      : '<span style="color:var(--muted)">?</span>';
     const ptsColor = dr.projectedPts > 0 ? 'var(--green)' : dr.projectedPts < 0 ? 'var(--red)' : 'var(--muted)';
+
+    // Qualifying: no delta col. Race: show Δ vs qual position.
+    const extraCell = isQualifying ? '' : (() => {
+      const deltaStr = dr.qualPos
+        ? (dr.qualPos - dr.pos > 0 ? `<span style="color:var(--green)">▲${dr.qualPos - dr.pos}</span>`
+          : dr.qualPos - dr.pos < 0 ? `<span style="color:var(--red)">▼${Math.abs(dr.qualPos - dr.pos)}</span>`
+          : `<span style="color:var(--muted)">—</span>`)
+        : '<span style="color:var(--muted)">?</span>';
+      return `<td>${deltaStr}</td>`;
+    })();
+    const qualCell = isQualifying ? '' : `<td style="color:var(--muted);font-size:0.78rem">${dr.qualPos ? `Q${dr.qualPos}` : '–'}</td>`;
+
     return `<tr>
       <td class="pos-num ${posClass}">${dr.pos}</td>
       <td>
         ${player ? `<span class="live-owner-dot" style="background:${pColor}" title="${player}"></span>` : ''}
         <strong>${dr.lastName}</strong>${constructorBadge(dr.lastName)}
       </td>
-      <td style="color:var(--muted);font-size:0.78rem">${dr.qualPos ? `Q${dr.qualPos}` : '–'}</td>
-      <td>${deltaStr}</td>
+      ${qualCell}${extraCell}
       <td style="color:${ptsColor};font-weight:700;text-align:right">${dr.projectedPts > 0 ? '+' : ''}${dr.projectedPts}</td>
     </tr>`;
   }).join('');
 
+  const tableHeader = isQualifying
+    ? `<th>#</th><th>Fahrer</th><th style="text-align:right">Qual-Pkt</th>`
+    : `<th>#</th><th>Fahrer</th><th>Qual</th><th>Δ</th><th style="text-align:right">Proj. Pkt</th>`;
+
+  const sectionIcon = isQualifying ? '⏱️' : '🏁';
   const posTable = `
-    <div class="section-title">🏁 Aktuelle Positionen</div>
+    <div class="section-title">${sectionIcon} ${sessionLabel}: Aktuelle Positionen</div>
     <div style="overflow-x:auto;">
       <table class="live-pos-table">
-        <thead><tr>
-          <th>#</th><th>Fahrer</th><th>Qual</th><th>Δ</th><th style="text-align:right">Proj. Pkt</th>
-        </tr></thead>
+        <thead><tr>${tableHeader}</tr></thead>
         <tbody>${posRows}</tbody>
       </table>
     </div>`;
 
   // ── Right panel: team projections ─────────────────────────
-  // Pre-race total = standings total (already computed without today's race since RACE_DATA is empty for it)
   const standings = computeStandings();
   const preRaceTotals = {};
   standings.forEach(s => { preRaceTotals[s.player] = s.total; });
 
-  // Compute projected race pts per team
   const teamProjections = Object.keys(TEAMS).map(player => {
     const teamDrivers = TEAMS[player].drivers;
-    let projectedRacePts = 0;
+    let projectedSessionPts = 0;
     const driverDetails = teamDrivers.map(d => {
       const norm = normalizeName(d);
       const live = liveStandings.find(l => l.norm === norm);
       const pts = live ? live.projectedPts : 0;
-      projectedRacePts += pts;
+      projectedSessionPts += pts;
       return { name: d, live, pts };
     });
     const preTotal = preRaceTotals[player] || 0;
-    return { player, color: TEAMS[player].color, preTotal, projectedRacePts,
-             newTotal: preTotal + projectedRacePts, driverDetails };
+    return { player, color: TEAMS[player].color, preTotal, projectedSessionPts,
+             newTotal: preTotal + projectedSessionPts, driverDetails };
   }).sort((a, b) => b.newTotal - a.newTotal);
 
+  const sessionTag = isQualifying ? 'Quali' : 'heute';
   const teamCards = teamProjections.map((t, rank) => {
-    const delta = t.projectedRacePts;
+    const delta = t.projectedSessionPts;
     const deltaClass = delta > 0 ? 'pos' : delta < 0 ? 'neg' : 'zero';
     const deltaStr = delta > 0 ? `+${delta}` : `${delta}`;
     const rankBadge = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : `#${rank+1}`;
     const driverRows = t.driverDetails.map(dd => {
-      const racePos = dd.live ? dd.live.pos : '?';
-      const posClass = racePos <= 3 ? `pos-${racePos}` : '';
+      const curPos = dd.live ? dd.live.pos : '?';
+      const goldColor = curPos === 1 ? 'var(--gold)' : curPos === 2 ? 'var(--silver)' : curPos === 3 ? 'var(--bronze)' : 'var(--muted)';
       const ptsColor = dd.pts > 0 ? 'var(--green)' : dd.pts < 0 ? 'var(--red)' : 'var(--muted)';
       return `<div class="live-driver-row">
-        <span class="live-driver-pos live-pos-table ${posClass}" style="${racePos <=3 ? `color:var(--${racePos===1?'gold':racePos===2?'silver':'bronze'})` : 'color:var(--muted)'}">${racePos !== '?' ? `P${racePos}` : '–'}</span>
+        <span class="live-driver-pos" style="color:${goldColor}">${curPos !== '?' ? `P${curPos}` : '–'}</span>
         <span style="flex:1">${dd.name}${constructorBadge(dd.name)}</span>
         <span class="live-driver-pts" style="color:${ptsColor}">${dd.pts > 0 ? '+' : ''}${dd.pts}</span>
       </div>`;
@@ -1355,15 +1390,16 @@ function renderLiveUI(session, liveStandings, isLive, isRecent, isSoon) {
         <span style="font-size:1.1rem">${rankBadge}</span>
         <span class="live-team-name" style="color:${t.color}">${t.player}</span>
         <span class="live-team-total" style="color:${t.color}">${t.newTotal}</span>
-        <span class="live-team-delta ${deltaClass}">${deltaStr} heute</span>
+        <span class="live-team-delta ${deltaClass}">${deltaStr} ${sessionTag}</span>
         <span style="color:var(--muted);font-size:0.75rem;margin-left:auto">${t.preTotal} + ${delta}</span>
       </div>
       ${driverRows}
     </div>`;
   }).join('');
 
+  const teamsPanelTitle = isQualifying ? '📊 Team-Prognose (Qualifying)' : '📊 Team-Prognose (live)';
   const teamsPanel = `
-    <div class="section-title">📊 Team-Prognose (live)</div>
+    <div class="section-title">${teamsPanelTitle}</div>
     <div class="live-team-cards">${teamCards}</div>`;
 
   document.getElementById('liveContent').innerHTML = `
