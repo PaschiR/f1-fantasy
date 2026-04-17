@@ -171,7 +171,6 @@
 
 <div class="nav" id="mainNav">
   <div class="nav-tab active" onclick="showTab('standings')" data-tab="standings">🏆 Rangliste</div>
-  <div class="nav-tab" onclick="showTab('history')" data-tab="history">📊 Rennergebnisse</div>
   <div class="nav-tab" onclick="showTab('racedetail')" data-tab="racedetail">🔍 Renn-Details</div>
   <div class="nav-tab" onclick="showTab('drivers')" data-tab="drivers">👤 Fahrer</div>
   <div class="nav-tab" onclick="showTab('schedule')" data-tab="schedule">🗓️ Kalender</div>
@@ -198,14 +197,12 @@
     </div>
   </div>
 
-  <!-- HISTORY TAB -->
-  <div class="tab-content" id="tab-history">
+  <!-- RACE DETAIL TAB (includes Punkte aller Rennen table at top) -->
+  <div class="tab-content" id="tab-racedetail">
     <div class="section-title">📊 Punkte aller Rennen</div>
     <div class="race-history" id="historyTable"></div>
-  </div>
 
-  <!-- RACE DETAIL TAB -->
-  <div class="tab-content" id="tab-racedetail">
+    <div class="section-title" style="margin-top:2rem;">🔍 Renn-Details</div>
     <div class="race-select-row">
       <select class="race-select" id="raceSelect" onchange="renderRaceDetail()"></select>
       <div class="race-status-pill" id="raceStatusPill">–</div>
@@ -288,6 +285,34 @@ const RACE_DATA = {
 const FIRST_COUNTING_RACE = 1; // China is first counting race
 const CANCELED_RACES = new Set(); // No canceled races in 2026
 
+// Maps driver surname → their F1 constructor (populated from API on first fetch)
+let DRIVER_CONSTRUCTOR = {};
+
+// F1 2026 constructor styles: short label + color
+const CONSTRUCTOR_STYLE = {
+  'Mercedes':          { abbr: 'MER', color: '#00D2BE' },
+  'Ferrari':           { abbr: 'FER', color: '#DC0000' },
+  'Red Bull':          { abbr: 'RBR', color: '#3671C6' },
+  'McLaren':           { abbr: 'MCL', color: '#FF8000' },
+  'Aston Martin':      { abbr: 'AMR', color: '#358C75' },
+  'Alpine F1 Team':    { abbr: 'ALP', color: '#0093CC' },
+  'Williams':          { abbr: 'WIL', color: '#64C4FF' },
+  'Haas F1 Team':      { abbr: 'HAA', color: '#B6BABD' },
+  'Audi':              { abbr: 'AUD', color: '#52E252' },
+  'RB F1 Team':        { abbr: 'RB',  color: '#6692FF' },
+  'Cadillac F1 Team':  { abbr: 'CAD', color: '#C8A600' },
+};
+
+// Returns an HTML badge for a driver's constructor
+function constructorBadge(driverName) {
+  const norm = normalizeName(driverName);
+  const constructor = DRIVER_CONSTRUCTOR[norm];
+  if (!constructor) return '';
+  const style = CONSTRUCTOR_STYLE[constructor];
+  if (!style) return `<span style="font-size:0.65rem;color:var(--muted);margin-left:5px">${constructor}</span>`;
+  return `<span style="font-size:0.62rem;font-weight:700;background:${style.color}22;color:${style.color};border:1px solid ${style.color}55;border-radius:3px;padding:1px 5px;margin-left:5px;vertical-align:middle">${style.abbr}</span>`;
+}
+
 // Computed: per-player per-race points
 function getPlayerRacePoints(player, race) {
   const drivers = TEAMS[player].drivers;
@@ -350,7 +375,7 @@ function renderStandings() {
       <div class="player-pts" style="color:${color}">${s.total}</div>
       <div class="player-pts-label">Punkte Gesamt</div>
       <div class="player-drivers">
-        ${drivers.map(d => `<span class="driver-chip">${d}</span>`).join('')}
+        ${drivers.map(d => `<span class="driver-chip">${d}${constructorBadge(d)}</span>`).join('')}
       </div>
     </div>`;
   }).join('');
@@ -671,7 +696,7 @@ function renderRaceDetail() {
       const pts = dr.overall || 0;
       total += pts;
       return `<div class="score-row">
-        <span class="score-label">${d}</span>
+        <span class="score-label">${d}${constructorBadge(d)}</span>
         <span style="color:${pts > 0 ? 'var(--green)' : pts < 0 ? 'var(--red)' : 'var(--muted)'}">${pts > 0 ? '+' : ''}${pts}</span>
       </div>`;
     }).join('');
@@ -694,7 +719,7 @@ function renderRaceDetail() {
     const owner = Object.keys(TEAMS).find(p => TEAMS[p].drivers.includes(d)) || '–';
     const ownerColor = owner !== '–' ? TEAMS[owner].color : 'var(--muted)';
     return `<tr>
-      <td class="sticky-col"><strong>${d}</strong></td>
+      <td class="sticky-col"><strong>${d}</strong>${constructorBadge(d)}</td>
       <td style="color:${ownerColor}">${owner}</td>
       <td>${qualPos}</td>
       <td class="${dr.qual_pts > 0 ? 'pts-pos' : 'pts-zero'}">${dr.qual_pts > 0 ? '+' : ''}${dr.qual_pts || 0}</td>
@@ -751,7 +776,7 @@ function renderDriversTable() {
     }).join('');
     const total = driverTotals[d];
     return `<tr>
-      <td class="sticky-col"><strong>${d}</strong></td>
+      <td class="sticky-col"><strong>${d}</strong>${constructorBadge(d)}</td>
       <td style="color:${color}">${owner}</td>
       ${raceCells}
       <td style="font-weight:800;color:${total > 0 ? 'var(--green)' : 'var(--red)'}">${total > 0 ? '+' : ''}${total}</td>
@@ -842,8 +867,7 @@ function showTab(tab) {
   document.getElementById(`tab-${tab}`).classList.add('active');
   document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
 
-  if (tab === 'history') renderHistory();
-  if (tab === 'racedetail') renderRaceSelect();
+  if (tab === 'racedetail') { renderHistory(); renderRaceSelect(); }
   if (tab === 'drivers') renderDriversTable();
   if (tab === 'schedule') renderSchedule();
 }
@@ -957,10 +981,12 @@ async function fetchLatestResults() {
         const surname = normalizeName(r.Driver.familyName);
         raceByName[surname] = {
           pos: parseInt(r.position),
-          positionText: r.positionText, // 'R'=retired, 'D'=DSQ, number=classified
+          positionText: r.positionText,
           status: r.status,
           grid: parseInt(r.grid),
         };
+        // Capture constructor mapping while we have the data
+        DRIVER_CONSTRUCTOR[surname] = r.Constructor.name;
       });
 
       // All drivers in our game
@@ -1006,8 +1032,7 @@ async function fetchLatestResults() {
     // Re-render active tab
     renderStandings();
     const activeTab = document.querySelector('.nav-tab.active')?.dataset?.tab;
-    if (activeTab === 'history') renderHistory();
-    if (activeTab === 'racedetail') renderRaceSelect();
+    if (activeTab === 'racedetail') { renderHistory(); renderRaceSelect(); }
     if (activeTab === 'drivers') renderDriversTable();
 
     if (updatedCount === 0) {
