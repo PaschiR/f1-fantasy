@@ -112,6 +112,10 @@
 
   /* Progress line chart (CSS-based) */
   .progress-chart { position: relative; overflow-x: auto; }
+  .chart-legend { display: flex; flex-wrap: wrap; gap: 10px 20px; margin-top: 14px; padding: 0 4px; justify-content: center; }
+  .chart-legend-item { display: flex; align-items: center; gap: 7px; font-size: 0.82rem; font-weight: 600; }
+  .chart-legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .chart-legend-line { width: 24px; height: 3px; border-radius: 2px; flex-shrink: 0; }
   .progress-svg { display: block; }
 
   /* Status indicator */
@@ -166,7 +170,8 @@
       <button id="chartToggleBtn" onclick="toggleChartView()" style="margin-left:auto;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.75rem;font-weight:600;">Alle 23 Rennen</button>
     </div>
     <div class="chart-container">
-      <div style="overflow-x:auto;"><svg id="progressChart" class="progress-svg" height="320"></svg></div>
+      <div style="overflow-x:auto;"><svg id="progressChart" class="progress-svg" height="400"></svg></div>
+      <div class="chart-legend" id="chartLegend"></div>
     </div>
 
     <div class="section-title">📊 Letzte Rennergebnisse</div>
@@ -353,12 +358,12 @@ function renderProgressChart(standings, showAll) {
     return;
   }
 
-  // Next 2 upcoming (non-canceled) races
+  // Next 1 upcoming (non-canceled) race
   const upcomingNonCanceled = allCountingRaces.filter(r => !CANCELED_RACES.has(r) && (!RACE_DATA[r] || Object.keys(RACE_DATA[r]).length === 0));
-  const next2List = upcomingNonCanceled.slice(0, 2);
-  const next2 = new Set(next2List);
+  const next1List = upcomingNonCanceled.slice(0, 1);
+  const next1 = new Set(next1List);
 
-  // Windowed mode: last 4 done races + up to 2 upcoming + canceled races in between
+  // Windowed mode: last 4 done races + 1 upcoming + canceled races in between
   let displayRaces;
   if (showAll) {
     displayRaces = allCountingRaces; // all 23
@@ -366,17 +371,26 @@ function renderProgressChart(standings, showAll) {
     const last4Done = doneRaces.slice(-4);
     // Include all races from the first of last4Done onwards (to show canceled races in-between)
     const windowStart = allCountingRaces.indexOf(last4Done[0]);
-    const windowEnd = allCountingRaces.indexOf(next2List[1] ?? next2List[0] ?? last4Done[last4Done.length - 1]);
+    const windowEnd = allCountingRaces.indexOf(next1List[0] ?? last4Done[last4Done.length - 1]);
     displayRaces = allCountingRaces.slice(windowStart, windowEnd + 1);
   }
 
   // Indices within displayRaces
   const totalCols = displayRaces.length;
-  const H = 320;
-  const PAD = { top: 28, right: 80, bottom: 58, left: 54 };
-  const chartW = 900;
+  const H = 400;
+  const PAD = { top: 36, right: 20, bottom: 58, left: 54 };
+  // Inner data padding: lines won't touch the axes
+  const INNER = { top: 20, bottom: 20, left: 30, right: 30 };
+
+  // Measure the actual container width so the viewBox matches exactly — prevents text distortion
+  const svg = document.getElementById('progressChart');
+  const containerW = (svg.parentElement?.clientWidth || 960);
+  const chartW = Math.max(300, containerW - PAD.left - PAD.right);
+  const fullW = containerW;
+
   const chartH = H - PAD.top - PAD.bottom;
-  const fullW = chartW + PAD.left + PAD.right;
+  // Usable area for actual data lines (inset from axes)
+  const dataH = chartH - INNER.top - INNER.bottom;
 
   // Max based on ALL done races (so windowed view uses same scale as full view)
   const allMax = Math.max(1, ...standings.map(s => {
@@ -389,22 +403,25 @@ function renderProgressChart(standings, showAll) {
     return max;
   }));
 
-  // x position for a race by its index in allCountingRaces
-  // xOf maps displayRaces index to x coordinate
-  const xOf = i => totalCols <= 1 ? chartW / 2 : (i / (totalCols - 1)) * chartW;
+  // y maps a cumulative value to a y-coordinate within the data area (with inner padding)
+  const yOf = val => INNER.top + dataH - (val / allMax) * dataH;
+  // x maps a column index to an x-coordinate, inset from both edges
+  const usableW = chartW - INNER.left - INNER.right;
+  const xOf = i => totalCols <= 1 ? chartW / 2 : INNER.left + (i / (totalCols - 1)) * usableW;
 
-  const svg = document.getElementById('progressChart');
+  // viewBox matches actual pixel width → no scaling → text renders crisp
   svg.setAttribute('viewBox', `0 0 ${fullW} ${H}`);
-  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.removeAttribute('preserveAspectRatio');
   svg.style.width = '100%';
   svg.style.height = `${H}px`;
   svg.removeAttribute('width');
 
   let html = `<g transform="translate(${PAD.left},${PAD.top})">`;
+  // Base font for all SVG text
+  const FONT = `font-family="'Segoe UI', system-ui, sans-serif"`;
 
-  // Shade next-2 upcoming races
   displayRaces.forEach((r, i) => {
-    if (next2.has(r)) {
+    if (next1.has(r)) {
       const colHalfW = totalCols > 1 ? (chartW / (totalCols - 1)) / 2 : 20;
       const x0 = Math.max(0, xOf(i) - colHalfW);
       const x1 = Math.min(chartW, xOf(i) + colHalfW);
@@ -412,12 +429,12 @@ function renderProgressChart(standings, showAll) {
     }
   });
 
-  // Grid lines (horizontal)
+  // Grid lines (horizontal) — drawn at data-area positions using yOf()
   for (let g = 0; g <= 4; g++) {
-    const y = chartH - (g / 4) * chartH;
+    const y = yOf((g / 4) * allMax);
     const val = Math.round((g / 4) * allMax);
     html += `<line x1="0" y1="${y}" x2="${chartW}" y2="${y}" stroke="#2a2a3a" stroke-width="1"/>`;
-    html += `<text x="-6" y="${y + 4}" fill="#666" font-size="12" text-anchor="end">${val}</text>`;
+    html += `<text x="-6" y="${y + 4}" fill="#666" font-size="12" text-anchor="end" ${FONT}>${val}</text>`;
   }
 
   // X-axis labels
@@ -425,17 +442,17 @@ function renderProgressChart(standings, showAll) {
     const x = xOf(i);
     const isCanceled = CANCELED_RACES.has(r);
     const isDone = !isCanceled && RACE_DATA[r] && Object.keys(RACE_DATA[r]).length > 0;
-    const isNext2 = next2.has(r);
+    const isNext1 = next1.has(r);
 
     if (isCanceled) {
       html += `<line x1="${x}" y1="0" x2="${x}" y2="${chartH}" stroke="#5a1a1a" stroke-width="1.5" stroke-dasharray="4,3"/>`;
-      html += `<text x="${x}" y="${chartH + 17}" fill="#5a1a1a" font-size="10" text-anchor="middle">\uD83D\uDEAB${r.substring(0,5)}</text>`;
+      html += `<text x="${x}" y="${chartH + 17}" fill="#5a1a1a" font-size="10" text-anchor="middle" ${FONT}>🚫${r.substring(0,5)}</text>`;
     } else {
       html += `<line x1="${x}" y1="${chartH}" x2="${x}" y2="${chartH + 5}" stroke="${isDone ? '#666' : '#444'}" stroke-width="1"/>`;
-      const fill = isDone ? '#999' : isNext2 ? '#606060' : '#484848';
-      html += `<text x="${x}" y="${chartH + 19}" fill="${fill}" font-size="${showAll ? 9 : 11}" text-anchor="middle" ${isNext2 ? 'font-style="italic"' : ''}>${r.substring(0, showAll ? 5 : 7)}</text>`;
-      if (isNext2) {
-        html += `<text x="${x}" y="${chartH + 33}" fill="#505050" font-size="9" text-anchor="middle" font-style="italic">ausst.</text>`;
+      const fill = isDone ? '#999' : isNext1 ? '#606060' : '#484848';
+      html += `<text x="${x}" y="${chartH + 19}" fill="${fill}" font-size="${showAll ? 9 : 11}" text-anchor="middle" ${isNext1 ? 'font-style="italic"' : ''} ${FONT}>${r.substring(0, showAll ? 5 : 7)}</text>`;
+      if (isNext1) {
+        html += `<text x="${x}" y="${chartH + 33}" fill="#505050" font-size="9" text-anchor="middle" font-style="italic" ${FONT}>ausst.</text>`;
       }
     }
   });
@@ -446,8 +463,7 @@ function renderProgressChart(standings, showAll) {
     const color = TEAMS[s.player].color;
 
     // Build cumulative points at each done race that's in displayRaces
-    let cumAll = 0; // running total across ALL done races (for correct cumulative value)
-    // First compute cumulative at every done race in order
+    let cumAll = 0;
     const cumByRace = {};
     doneRaces.forEach(r => {
       const idx = RACES.indexOf(r) - FIRST_COUNTING_RACE;
@@ -455,31 +471,69 @@ function renderProgressChart(standings, showAll) {
       cumByRace[r] = cumAll;
     });
 
-    // Now build display points only for done races visible in window
-    const visibleDone = displayRaces.filter(r => doneRaces.includes(r));
-    const pts = visibleDone.map(r => ({
-      x: xOf(displayRaces.indexOf(r)),
-      y: chartH - (cumByRace[r] / allMax) * chartH
-    }));
+    // Build segments: solid for normal races, dashed-flat for canceled races
+    let lastY = null;
+    let lastX = null;
+    let solidPath = [];
+    let segments = [];
 
-    if (pts.length === 0) return;
+    displayRaces.forEach((r) => {
+      const xi = xOf(displayRaces.indexOf(r));
+      if (CANCELED_RACES.has(r)) {
+        if (lastY !== null) {
+          if (solidPath.length > 0) { segments.push({ solid: true, points: [...solidPath] }); solidPath = []; }
+          segments.push({ solid: false, points: [{ x: lastX, y: lastY }, { x: xi, y: lastY }] });
+          lastX = xi;
+        }
+      } else if (doneRaces.includes(r)) {
+        const y = yOf(cumByRace[r]);
+        if (lastY === null) {
+          solidPath.push({ x: xi, y });
+        } else {
+          if (solidPath.length === 0) solidPath.push({ x: lastX, y: lastY });
+          solidPath.push({ x: xi, y });
+        }
+        lastY = y;
+        lastX = xi;
+      }
+    });
+    if (solidPath.length > 0) segments.push({ solid: true, points: solidPath });
 
-    if (pts.length === 1) {
-      html += `<circle cx="${pts[0].x}" cy="${pts[0].y}" r="4" fill="${color}"/>`;
-    } else {
-      const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
-      html += `<path d="${pathD}" stroke="${color}" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round"/>`;
-    }
+    // Draw segments — dot on every data point
+    segments.forEach(seg => {
+      if (seg.points.length < 2) {
+        if (seg.points.length === 1) html += `<circle cx="${seg.points[0].x}" cy="${seg.points[0].y}" r="4" fill="${color}"/>`;
+        return;
+      }
+      const d = seg.points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+      if (seg.solid) {
+        html += `<path d="${d}" stroke="${color}" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round"/>`;
+        // Dot on every point in the segment
+        seg.points.forEach(p => {
+          html += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4" fill="${color}"/>`;
+        });
+      } else {
+        html += `<path d="${d}" stroke="${color}" stroke-width="2" fill="none" stroke-dasharray="6,4" opacity="0.6"/>`;
+      }
+    });
 
-    // End dot + name label
-    const last = pts[pts.length - 1];
-    html += `<circle cx="${last.x}" cy="${last.y}" r="4" fill="${color}"/>`;
-    // Only show label if it fits (label at end point, shift right slightly)
-    html += `<text x="${last.x + 8}" y="${last.y + 5}" fill="${color}" font-size="13" font-weight="700">${s.player}</text>`;
+    // No separate end-dot needed — all points already get dots above
   });
 
   html += '</g>';
   svg.innerHTML = html;
+
+  // Render legend below chart (sorted by current standings)
+  const legend = document.getElementById('chartLegend');
+  if (legend) {
+    legend.innerHTML = standings.map(s => {
+      const color = TEAMS[s.player].color;
+      return `<div class="chart-legend-item">
+        <div class="chart-legend-line" style="background:${color}"></div>
+        <span style="color:${color}">${s.player}</span>
+      </div>`;
+    }).join('');
+  }
 }
 
 function renderLastRaceBar(standings) {
