@@ -189,6 +189,24 @@
   .live-driver-pos { font-weight: 700; width: 28px; }
   .live-driver-pts { font-weight: 700; font-size: 0.82rem; }
 
+  /* Rules tab */
+  .rules-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
+  .rules-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .rules-card-wide { grid-column: 1 / -1; }
+  .rules-card-title { font-size: 1rem; font-weight: 700; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .rules-intro { font-size: 0.82rem; color: var(--muted); margin-bottom: 12px; }
+  .rules-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .rules-table th { background: var(--surface2); padding: 7px 10px; text-align: left; font-weight: 600; color: var(--muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+  .rules-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  .rules-table tr:last-child td { border-bottom: none; }
+  .rules-table .total-row td { background: var(--surface2); border-top: 2px solid var(--border); }
+  .rules-table td.pts-pos { color: var(--green); font-weight: 700; }
+  .rules-table td.pts-neg { color: var(--red); font-weight: 700; }
+  .rules-table td.pts-zero { color: var(--muted); }
+  .rules-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 0.84rem; line-height: 1.5; }
+  .rules-list li { padding-left: 4px; }
+  .rules-list code { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 0.78rem; }
+
   /* Team detail tab */
   .team-selector { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 24px; }
   .team-btn { padding: 8px 20px; border-radius: 8px; border: 2px solid var(--border); background: var(--surface); color: var(--muted); font-size: 0.85rem; font-weight: 700; cursor: pointer; transition: all 0.2s; }
@@ -232,6 +250,7 @@
   <div class="nav-tab" onclick="showTab('teams')" data-tab="teams">👥 Teams</div>
   <div class="nav-tab" onclick="showTab('drivers')" data-tab="drivers">👤 Fahrer</div>
   <div class="nav-tab" onclick="showTab('schedule')" data-tab="schedule">🗓️ Kalender</div>
+  <div class="nav-tab" onclick="showTab('rules')" data-tab="rules">📖 Regeln</div>
 </div>
 
 <div class="main">
@@ -284,6 +303,122 @@
   <div class="tab-content" id="tab-drivers">
     <div class="section-title">👤 Fahrerübersicht</div>
     <div class="race-history" id="driversTable"></div>
+  </div>
+
+  <!-- RULES TAB -->
+  <div class="tab-content" id="tab-rules">
+    <div class="section-title">📖 Spielregeln F1 Fantasy 2026</div>
+
+    <div class="rules-grid">
+
+      <!-- Qualifying -->
+      <div class="rules-card">
+        <div class="rules-card-title">⏱️ Qualifying</div>
+        <p class="rules-intro">Punkte basieren auf der finalen Qualifying-Position deiner Fahrer.</p>
+        <table class="rules-table">
+          <thead><tr><th>Position</th><th>Punkte</th></tr></thead>
+          <tbody>
+            <tr><td>🥇 P1</td><td class="pts-pos">+10</td></tr>
+            <tr><td>🥈 P2</td><td class="pts-pos">+9</td></tr>
+            <tr><td>🥉 P3</td><td class="pts-pos">+8</td></tr>
+            <tr><td>P4</td><td class="pts-pos">+7</td></tr>
+            <tr><td>P5</td><td class="pts-pos">+6</td></tr>
+            <tr><td>P6</td><td class="pts-pos">+5</td></tr>
+            <tr><td>P7</td><td class="pts-pos">+4</td></tr>
+            <tr><td>P8</td><td class="pts-pos">+3</td></tr>
+            <tr><td>P9</td><td class="pts-pos">+2</td></tr>
+            <tr><td>P10</td><td class="pts-pos">+1</td></tr>
+            <tr><td>P11–P20</td><td class="pts-zero">0</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Race -->
+      <div class="rules-card">
+        <div class="rules-card-title">🏁 Rennen</div>
+        <p class="rules-intro">Punkte basieren auf der Zielposition deiner Fahrer.</p>
+        <table class="rules-table">
+          <thead><tr><th>Position</th><th>Punkte</th></tr></thead>
+          <tbody>
+            <tr><td>🥇 P1</td><td class="pts-pos">+20</td></tr>
+            <tr><td>🥈 P2</td><td class="pts-pos">+19</td></tr>
+            <tr><td>🥉 P3</td><td class="pts-pos">+18</td></tr>
+            <tr><td>P4</td><td class="pts-pos">+17</td></tr>
+            <tr><td>P5</td><td class="pts-pos">+16</td></tr>
+            <tr><td>P6</td><td class="pts-pos">+15</td></tr>
+            <tr><td>P7</td><td class="pts-pos">+14</td></tr>
+            <tr><td>P8</td><td class="pts-pos">+13</td></tr>
+            <tr><td>P9</td><td class="pts-pos">+12</td></tr>
+            <tr><td>P10</td><td class="pts-pos">+11</td></tr>
+            <tr><td>P11</td><td class="pts-pos">+10</td></tr>
+            <tr><td>P12</td><td class="pts-pos">+9</td></tr>
+            <tr><td>P13</td><td class="pts-pos">+8</td></tr>
+            <tr><td>P14</td><td class="pts-pos">+7</td></tr>
+            <tr><td>P15</td><td class="pts-pos">+6</td></tr>
+            <tr><td>P16</td><td class="pts-pos">+5</td></tr>
+            <tr><td>P17</td><td class="pts-pos">+4</td></tr>
+            <tr><td>P18</td><td class="pts-pos">+3</td></tr>
+            <tr><td>P19</td><td class="pts-pos">+2</td></tr>
+            <tr><td>P20</td><td class="pts-pos">+1</td></tr>
+            <tr><td>P21+</td><td class="pts-zero">0</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Bonuses & Penalties -->
+      <div class="rules-card">
+        <div class="rules-card-title">✨ Bonus &amp; Strafe</div>
+        <p class="rules-intro">Zusatzpunkte und Abzüge gelten pro Fahrer und Rennen.</p>
+        <table class="rules-table">
+          <thead><tr><th>Ereignis</th><th>Punkte</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>📈 Position gewonnen<br><small style="color:var(--muted)">vs. Qualifying-Position, min. 0</small></td>
+              <td class="pts-pos">+1 pro Pos.</td>
+            </tr>
+            <tr>
+              <td>💥 DNF / DNS / DSQ<br><small style="color:var(--muted)">Retired, Did Not Start, Disqualified</small></td>
+              <td class="pts-neg">−5</td>
+            </tr>
+            <tr>
+              <td>🛑 Positionen verloren<br><small style="color:var(--muted)">Verluste gehen nicht in die Wertung ein</small></td>
+              <td class="pts-zero">0</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- General rules -->
+      <div class="rules-card">
+        <div class="rules-card-title">📌 Allgemeine Regeln</div>
+        <ul class="rules-list">
+          <li>🏆 Jeder Spieler wählt ein <strong>festes Team</strong> aus Formel-1-Fahrern für die gesamte Saison.</li>
+          <li>🌏 Es wird über <strong>22 Rennen</strong> gespielt (2026er Kalender).</li>
+          <li>❌ Das Eröffnungsrennen in <strong>Australien</strong> zählt <em>nicht</em> zur Wertung — das erste zählende Rennen ist <strong>China</strong>.</li>
+          <li>📅 Die Gesamtpunkte eines Spielers ergeben sich aus der <strong>Summe aller Fahrerpunkte</strong> pro Rennen.</li>
+          <li>➕ Pro Rennen gilt: <code>Qualipunkte + Rennpunkte + Positionen gewonnen &minus; DNF-Strafe</code></li>
+          <li>🔢 Die <strong>Qualifying-Position</strong> (nicht die Startposition) wird für „Positionen gewonnen“ verwendet.</li>
+          <li>📊 Daten werden automatisch nach jedem Rennen über die Jolpica / Ergast F1 API geladen.</li>
+          <li>🔴 Die <strong>Live-Ansicht</strong> nutzt die OpenF1-API für Echtzeit-Positionen während Qualifying und Rennen.</li>
+        </ul>
+      </div>
+
+      <!-- Example -->
+      <div class="rules-card rules-card-wide">
+        <div class="rules-card-title">💡 Beispielrechnung</div>
+        <p class="rules-intro">Fahrer startet von <strong>P5 im Qualifying</strong>, fährt auf <strong>P2 im Rennen</strong>:</p>
+        <table class="rules-table">
+          <thead><tr><th>Komponente</th><th>Wert</th><th>Punkte</th></tr></thead>
+          <tbody>
+            <tr><td>Qualifying P5</td><td>P5</td><td class="pts-pos">+6</td></tr>
+            <tr><td>Rennergebnis P2</td><td>P2</td><td class="pts-pos">+19</td></tr>
+            <tr><td>Positionen gewonnen</td><td>5 → 2 = +3</td><td class="pts-pos">+3</td></tr>
+            <tr class="total-row"><td colspan="2"><strong>Gesamt</strong></td><td class="pts-pos"><strong>+28</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
   </div>
 
   <!-- SCHEDULE TAB -->
