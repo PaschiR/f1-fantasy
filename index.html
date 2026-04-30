@@ -328,7 +328,7 @@
             <tr><td>P8</td><td class="pts-pos">+3</td></tr>
             <tr><td>P9</td><td class="pts-pos">+2</td></tr>
             <tr><td>P10</td><td class="pts-pos">+1</td></tr>
-            <tr><td>P11–P20</td><td class="pts-zero">0</td></tr>
+            <tr><td>P11–P22</td><td class="pts-zero">0</td></tr>
           </tbody>
         </table>
       </div>
@@ -594,7 +594,7 @@ function toggleChartView() {
   _chartShowAll = !_chartShowAll;
   const btn = document.getElementById('chartToggleBtn');
   const title = document.getElementById('chartTitle');
-  btn.textContent = _chartShowAll ? 'Kompaktansicht' : 'Alle 23 Rennen';
+  btn.textContent = _chartShowAll ? 'Kompaktansicht' : 'Alle 21 Rennen';
   // subtitle removed
   renderProgressChart(computeStandings(), _chartShowAll);
 }
@@ -617,7 +617,7 @@ function renderProgressChart(standings, showAll) {
   // Windowed mode: last 4 done races + 1 upcoming + canceled races in between
   let displayRaces;
   if (showAll) {
-    displayRaces = allCountingRaces; // all 23
+    displayRaces = allCountingRaces; // all 21
   } else {
     const last4Done = doneRaces.slice(-4);
     // Include all races from the first of last4Done onwards (to show canceled races in-between)
@@ -933,7 +933,7 @@ function renderRaceDetail() {
       <td>${qualPos}</td>
       <td class="${dr.qual_pts > 0 ? 'pts-pos' : 'pts-zero'}">${dr.qual_pts > 0 ? '+' : ''}${dr.qual_pts || 0}</td>
       <td>${racePos}</td>
-      <td class="${isDNF ? 'pts-neg' : dr.race_pts > 0 ? 'pts-pos' : 'pts-zero'}">${isDNF ? '−5' : `+${dr.race_pts}`}</td>
+      <td class="${isDNF ? 'pts-neg' : dr.race_pts > 0 ? 'pts-pos' : 'pts-zero'}">${isDNF ? '−5' : dr.race_pts > 0 ? `+${dr.race_pts}` : (dr.race_pts || 0)}</td>
       <td class="${dr.pos_gained > 0 ? 'pts-pos' : dr.pos_gained < 0 ? 'pts-neg' : 'pts-zero'}">${dr.pos_gained > 0 ? '+' : ''}${dr.pos_gained || 0}</td>
       <td class="${sty}" style="font-weight:700">${dr.overall > 0 ? '+' : ''}${dr.overall || 0}</td>
     </tr>`;
@@ -988,7 +988,7 @@ function renderDriversTable() {
       <td class="sticky-col"><strong>${d}</strong>${constructorBadge(d)}</td>
       <td style="color:${color}">${owner}</td>
       ${raceCells}
-      <td style="font-weight:800;color:${total > 0 ? 'var(--green)' : 'var(--red)'}">${total > 0 ? '+' : ''}${total}</td>
+      <td style="font-weight:800;color:${total > 0 ? 'var(--green)' : total < 0 ? 'var(--red)' : 'var(--muted)'}">${total > 0 ? '+' : ''}${total}</td>
     </tr>`;
   }).join('');
 
