@@ -916,27 +916,43 @@ function renderRaceDetail() {
     </div>`;
   }).join('');
 
-  // Full driver table
-  const allDrivers = Object.keys(data).sort((a, b) => (data[b].overall || 0) - (data[a].overall || 0));
-  const driverRows = allDrivers.map(d => {
-    const dr = data[d];
-    const isDNF = dr.race_pos === 'DNF';
-    const racePos = isDNF ? '<span style="background:#3a0000;color:#ff6666;padding:1px 6px;border-radius:3px;font-size:0.75rem;font-weight:700">DNF</span>' : (dr.race_pos ? `P${dr.race_pos}` : '–');
-    const qualPos = dr.qual_pos ? `P${dr.qual_pos}` : '–';
-    const sty = dr.overall > 0 ? 'pts-pos' : dr.overall < 0 ? 'pts-neg' : 'pts-zero';
-    // Who picked this driver?
-    const owner = Object.keys(TEAMS).find(p => TEAMS[p].drivers.includes(d)) || '–';
-    const ownerColor = owner !== '–' ? TEAMS[owner].color : 'var(--muted)';
-    return `<tr>
-      <td class="sticky-col"><strong>${d}</strong>${constructorBadge(d)}</td>
-      <td style="color:${ownerColor}">${owner}</td>
-      <td>${qualPos}</td>
-      <td class="${dr.qual_pts > 0 ? 'pts-pos' : 'pts-zero'}">${dr.qual_pts > 0 ? '+' : ''}${dr.qual_pts || 0}</td>
-      <td>${racePos}</td>
-      <td class="${isDNF ? 'pts-neg' : dr.race_pts > 0 ? 'pts-pos' : 'pts-zero'}">${isDNF ? '−5' : dr.race_pts > 0 ? `+${dr.race_pts}` : (dr.race_pts || 0)}</td>
-      <td class="${dr.pos_gained > 0 ? 'pts-pos' : dr.pos_gained < 0 ? 'pts-neg' : 'pts-zero'}">${dr.pos_gained > 0 ? '+' : ''}${dr.pos_gained || 0}</td>
-      <td class="${sty}" style="font-weight:700">${dr.overall > 0 ? '+' : ''}${dr.overall || 0}</td>
+  // Full driver table — grouped by team owner, sorted by points within each group
+  const driverRows = Object.keys(TEAMS).map(player => {
+    const color = TEAMS[player].color;
+    const teamDrivers = TEAMS[player].drivers
+      .filter(d => data[d]) // only drivers with data for this race
+      .sort((a, b) => (data[b].overall || 0) - (data[a].overall || 0));
+    if (teamDrivers.length === 0) return '';
+
+    const teamTotal = teamDrivers.reduce((s, d) => s + (data[d].overall || 0), 0);
+    const headerRow = `<tr style="background:${color}18;border-left:3px solid ${color}">
+      <td class="sticky-col" colspan="8" style="font-weight:700;color:${color};padding:6px 10px">
+        ${player} &nbsp;<span style="font-weight:400;font-size:0.82rem;color:var(--muted)">${teamDrivers.length} Fahrer</span>
+        <span style="float:right;font-weight:700;color:${teamTotal > 0 ? 'var(--green)' : teamTotal < 0 ? 'var(--red)' : 'var(--muted)'}">
+          ${teamTotal > 0 ? '+' : ''}${teamTotal}
+        </span>
+      </td>
     </tr>`;
+
+    const rows = teamDrivers.map(d => {
+      const dr = data[d];
+      const isDNF = dr.race_pos === 'DNF';
+      const racePos = isDNF ? '<span style="background:#3a0000;color:#ff6666;padding:1px 6px;border-radius:3px;font-size:0.75rem;font-weight:700">DNF</span>' : (dr.race_pos ? `P${dr.race_pos}` : '–');
+      const qualPos = dr.qual_pos ? `P${dr.qual_pos}` : '–';
+      const sty = dr.overall > 0 ? 'pts-pos' : dr.overall < 0 ? 'pts-neg' : 'pts-zero';
+      return `<tr>
+        <td class="sticky-col" style="padding-left:18px"><strong>${d}</strong>${constructorBadge(d)}</td>
+        <td style="color:${color}">${player}</td>
+        <td>${qualPos}</td>
+        <td class="${dr.qual_pts > 0 ? 'pts-pos' : 'pts-zero'}">${dr.qual_pts > 0 ? '+' : ''}${dr.qual_pts || 0}</td>
+        <td>${racePos}</td>
+        <td class="${isDNF ? 'pts-neg' : dr.race_pts > 0 ? 'pts-pos' : 'pts-zero'}">${isDNF ? '−5' : dr.race_pts > 0 ? `+${dr.race_pts}` : (dr.race_pts || 0)}</td>
+        <td class="${dr.pos_gained > 0 ? 'pts-pos' : dr.pos_gained < 0 ? 'pts-neg' : 'pts-zero'}">${dr.pos_gained > 0 ? '+' : ''}${dr.pos_gained || 0}</td>
+        <td class="${sty}" style="font-weight:700">${dr.overall > 0 ? '+' : ''}${dr.overall || 0}</td>
+      </tr>`;
+    }).join('');
+
+    return headerRow + rows;
   }).join('');
 
   document.getElementById('raceDetailContent').innerHTML = `
@@ -1275,6 +1291,7 @@ const SESSION_TIME_OVERRIDES = {
 let _liveAutoRefresh = null;
 let _liveCountdown = null;
 let _liveNextRefreshAt = null;
+let _liveDataCache = null; // last successful fetch: { session, liveStandings, isLive, isRecent, isSoon, isQualifying, fetchedAt }
 
 function clearLiveIntervals() {
   if (_liveAutoRefresh) { clearInterval(_liveAutoRefresh); _liveAutoRefresh = null; }
@@ -1302,29 +1319,66 @@ async function renderLiveTab() {
 }
 
 async function fetchAndRenderLive() {
-  // Helper: fetch JSON, return [] on any error so one failing call doesn't kill the whole view
+  // Helper: fetch JSON — returns the parsed array, or null on failure
   const fetchJsonSafe = async (url, label) => {
     try {
       const r = await fetch(url);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
-      return Array.isArray(data) ? data : [];
+      if (Array.isArray(data)) return data;
+      // OpenF1 blocks unauthenticated access during live sessions — surface that clearly
+      if (data?.detail) throw new Error(`__OPENF1_BLOCK__:${data.detail}`);
+      return null;
     } catch(e) {
-      console.warn(`Live: ${label} fehlgeschlagen (${e.message}) — wird übersprungen`);
-      return [];
+      if (e.message.startsWith('__OPENF1_BLOCK__:')) throw e; // re-throw to outer handler
+      console.warn(`Live: ${label} fehlgeschlagen (${e.message})`);
+      return null;
     }
   };
 
-  try {
-    // 1. Get all 2026 sessions: both Race-type and Qualifying-type (independent, each fails safely)
-    const [raceSessRaw, qualSessRaw] = await Promise.all([
+  // Fetch both session lists; on transient failure retry once after 3s
+  const fetchSessions = async () => {
+    const [race, qual] = await Promise.all([
       fetchJsonSafe(`${OPENF1_BASE}/sessions?year=2026&session_type=Race`, 'Race-Sessions'),
       fetchJsonSafe(`${OPENF1_BASE}/sessions?year=2026&session_type=Qualifying`, 'Qualifying-Sessions'),
     ]);
+    return { race, qual };
+  };
 
-    if (raceSessRaw.length === 0 && qualSessRaw.length === 0) {
-      throw new Error('OpenF1 API nicht erreichbar – bitte später erneut versuchen');
+  try {
+    // 1. Get all 2026 sessions — auto-retry once if both fail
+    let { race: raceSessRaw, qual: qualSessRaw } = await fetchSessions();
+    if (raceSessRaw === null && qualSessRaw === null) {
+      // Transient error — wait 3s and try once more
+      await new Promise(res => setTimeout(res, 3000));
+      ({ race: raceSessRaw, qual: qualSessRaw } = await fetchSessions());
     }
+    // Still nothing after retry — fall back to cached data if available, else show soft message
+    if (raceSessRaw === null && qualSessRaw === null) {
+      if (_liveDataCache) {
+        const ageMin = Math.round((Date.now() - _liveDataCache.fetchedAt) / 60000);
+        renderLiveUI(_liveDataCache.session, _liveDataCache.liveStandings,
+          _liveDataCache.isLive, _liveDataCache.isRecent, _liveDataCache.isSoon, _liveDataCache.isQualifying, ageMin);
+      } else {
+        document.getElementById('liveStatusBar').innerHTML = `
+          <span class="live-badge is-none">⚠️ Keine Verbindung</span>
+          <div class="live-refresh-info">
+            <button class="live-refresh-btn" onclick="fetchAndRenderLive()">&#8635; Erneut versuchen</button>
+          </div>`;
+        document.getElementById('liveContent').innerHTML = `
+          <div style="padding:32px 0;text-align:center">
+            <div style="font-size:2.5rem">📡</div>
+            <div style="font-size:1rem;font-weight:700;margin-top:12px">OpenF1 nicht erreichbar</div>
+            <div style="color:var(--muted);margin-top:8px;max-width:420px;margin-left:auto;margin-right:auto">
+              Hinweis: Während eines laufenden Rennens sperrt OpenF1 den kostenlosen Zugriff.<br>
+              Die Live-Ansicht ist verfügbar bei: Qualifying, zwischen den Sessions, und nach dem Rennen.
+            </div>
+          </div>`;
+      }
+      return;
+    }
+    raceSessRaw = raceSessRaw || [];
+    qualSessRaw = qualSessRaw || [];
 
     // Qualifying sessions: "Qualifying" only (not Sprint Qualifying)
     const qualifyingSessions = qualSessRaw.filter(s => s.session_name === 'Qualifying' && !s.is_cancelled);
@@ -1362,14 +1416,14 @@ async function fetchAndRenderLive() {
     const isQualifying = session.session_name === 'Qualifying';
 
     // 2. Fetch drivers for this session
-    const driversRaw = await fetchJsonSafe(`${OPENF1_BASE}/drivers?session_key=${session.session_key}`, 'Fahrer');
+    const driversRaw = await fetchJsonSafe(`${OPENF1_BASE}/drivers?session_key=${session.session_key}`, 'Fahrer') || [];
     const driverMap = {};
     driversRaw.forEach(d => { driverMap[d.driver_number] = d; });
 
     // 3. Fetch positions for this session
     // Note: avoid embedding >= in query key — some proxies mangle it; filter client-side instead
     const posUrl = `${OPENF1_BASE}/position?session_key=${session.session_key}`;
-    const allPosRaw = await fetchJsonSafe(posUrl, 'Positionen');
+    const allPosRaw = await fetchJsonSafe(posUrl, 'Positionen') || [];
     // When live: only keep position records from the last 12 minutes to reduce data
     const sinceMs = isLive ? now.getTime() - 12 * 60000 : 0;
     const allPos = isLive ? allPosRaw.filter(p => new Date(p.date).getTime() >= sinceMs) : allPosRaw;
@@ -1385,7 +1439,7 @@ async function fetchAndRenderLive() {
       // Find the qualifying session for the same meeting
       const meetingQual = qualifyingSessions.find(s => s.meeting_key === session.meeting_key);
       if (meetingQual) {
-        const allQualPos = await fetchJsonSafe(`${OPENF1_BASE}/position?session_key=${meetingQual.session_key}`, 'Quali-Positionen');
+        const allQualPos = await fetchJsonSafe(`${OPENF1_BASE}/position?session_key=${meetingQual.session_key}`, 'Quali-Positionen') || [];
         const latestQualPos = {};
         allQualPos.forEach(p => {
           if (!latestQualPos[p.driver_number] || p.date > latestQualPos[p.driver_number].date)
@@ -1432,19 +1486,54 @@ async function fetchAndRenderLive() {
       return;
     }
 
-    renderLiveUI(session, liveStandings, isLive, isRecent, isSoon, isQualifying);
+    renderLiveUI(session, liveStandings, isLive, isRecent, isSoon, isQualifying, null);
+    // Cache this successful result for use during outages
+    _liveDataCache = { session, liveStandings, isLive, isRecent, isSoon, isQualifying, fetchedAt: Date.now() };
   } catch(e) {
     console.error('Live fetch error:', e);
-    document.getElementById('liveStatusBar').innerHTML = '';
-    document.getElementById('liveContent').innerHTML =
-      `<div style="color:var(--red);padding:24px 0">⚠️ Fehler beim Laden der Live-Daten: ${e.message}</div>`;
+    const isBlock = e.message.startsWith('__OPENF1_BLOCK__:');
+    if (isBlock && _liveDataCache) {
+      // Blocked during live session but we have cached data — show it with stale note
+      const ageMin = Math.round((Date.now() - _liveDataCache.fetchedAt) / 60000);
+      renderLiveUI(_liveDataCache.session, _liveDataCache.liveStandings,
+        _liveDataCache.isLive, _liveDataCache.isRecent, _liveDataCache.isSoon, _liveDataCache.isQualifying, ageMin);
+    } else if (isBlock) {
+      // Blocked and no cache — explain clearly
+      document.getElementById('liveStatusBar').innerHTML = `
+        <span class="live-badge is-live">🔴 LIVE — Rennen läuft</span>
+        <div class="live-refresh-info">
+          <button class="live-refresh-btn" onclick="fetchAndRenderLive()">↻ Prüfen</button>
+        </div>`;
+      document.getElementById('liveContent').innerHTML = `
+        <div style="padding:32px 0;text-align:center">
+          <div style="font-size:2.5rem">🔒</div>
+          <div style="font-size:1rem;font-weight:700;margin-top:12px">OpenF1 sperrt kostenlosen Zugriff während eines Live-Rennens</div>
+          <div style="color:var(--muted);margin-top:8px;max-width:420px;margin-left:auto;margin-right:auto">
+            Die Daten sind wieder verfügbar, sobald das Rennen beendet ist.<br>
+            Bitte nach dem Rennen erneut laden.
+          </div>
+        </div>`;
+    } else if (_liveDataCache) {
+      const ageMin = Math.round((Date.now() - _liveDataCache.fetchedAt) / 60000);
+      renderLiveUI(_liveDataCache.session, _liveDataCache.liveStandings,
+        _liveDataCache.isLive, _liveDataCache.isRecent, _liveDataCache.isSoon, _liveDataCache.isQualifying, ageMin);
+    } else {
+      document.getElementById('liveStatusBar').innerHTML = `
+        <span class="live-badge is-none">⚠️ Fehler</span>
+        <div class="live-refresh-info">
+          <button class="live-refresh-btn" onclick="fetchAndRenderLive()">&#8635; Erneut versuchen</button>
+        </div>`;
+      document.getElementById('liveContent').innerHTML =
+        `<div style="color:var(--muted);padding:24px 0">Fehler beim Laden: ${e.message}</div>`;
+    }
   }
 }
 
-function renderLiveUI(session, liveStandings, isLive, isRecent, isSoon, isQualifying) {
+function renderLiveUI(session, liveStandings, isLive, isRecent, isSoon, isQualifying, staleAgeMin) {
   const raceName = OPENF1_LOCATION_MAP[session.location] || session.location;
   const circuitLabel = session.circuit_short_name || session.location;
   const sessionLabel = isQualifying ? 'Qualifying' : 'Rennen';
+  const isStale = staleAgeMin !== null && staleAgeMin !== undefined;
 
   // ── Status bar ────────────────────────────────────────────
   let badgeClass = 'is-none', badgeText = '–';
@@ -1454,11 +1543,13 @@ function renderLiveUI(session, liveStandings, isLive, isRecent, isSoon, isQualif
 
   const tStart = new Date(session.date_start);
   const timeStr = tStart.toLocaleString('de-DE', { weekday:'short', day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+  const staleNote = isStale ? `<span style="color:var(--gold);font-size:0.78rem">⚠️ Letzte Daten vor ${staleAgeMin} Min — API nicht erreichbar</span>` : '';
 
   document.getElementById('liveStatusBar').innerHTML = `
     <span class="live-badge ${badgeClass}">${badgeText}</span>
     <span class="live-race-name">${raceName} — ${circuitLabel}</span>
     <span style="color:var(--muted);font-size:0.8rem">${timeStr} Uhr</span>
+    ${staleNote}
     <div class="live-refresh-info">
       <span class="live-countdown" id="liveCountdownText">Aktualisierung in 30s</span>
       <button class="live-refresh-btn" onclick="fetchAndRenderLive()">↻ Jetzt</button>
