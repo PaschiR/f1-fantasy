@@ -248,7 +248,18 @@
   .team-driver-table .total-row td { background: var(--surface2); font-weight: 700; border-top: 2px solid var(--border); }
 
   /* Responsive */
-  @media (max-width: 600px) { .main { padding: 16px; } .header { padding: 14px 16px; } .nav { padding: 0 16px; } .standings-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 600px) {
+    .main { padding: 16px; }
+    .nav { padding: 0 16px; }
+    .standings-grid { grid-template-columns: 1fr 1fr; }
+    .header { padding: 10px 16px; gap: 8px; flex-wrap: nowrap; align-items: center; }
+    .header h1 { font-size: 1.2rem; letter-spacing: 1px; white-space: nowrap; }
+    .header .subtitle { display: none; }
+    .header-right { flex-shrink: 0; display: flex; flex-direction: row; align-items: center; gap: 8px; text-align: right; }
+    .last-updated { display: none; }
+    .api-status { margin: 0 !important; }
+    .refresh-btn { margin-top: 0 !important; padding: 6px 10px; font-size: 0.75rem; white-space: nowrap; }
+  }
 </style>
 </head>
 <body>
@@ -1980,7 +1991,8 @@ function renderLiveNoRace(lastSession) {
       const raceName = OPENF1_LOCATION_MAP[lastSession.location] || lastSession.location;
       const timeStr = tStart.toLocaleString('de-DE', { weekday:'long', day:'2-digit', month:'long', hour:'2-digit', minute:'2-digit' });
       const overrideNote = isOverridden ? ' <span style="color:var(--gold);font-size:0.8rem">(geändert)</span>' : '';
-      nextInfo = `<p style="margin-top:12px;color:var(--muted)">Nächstes Rennen: <strong style="color:var(--text)">${raceName}</strong> — ${timeStr} Uhr${overrideNote}</p>`;
+      const sessionLabel = lastSession.session_name === 'Qualifying' ? 'Nächstes Qualifying' : 'Nächstes Rennen';
+      nextInfo = `<p style="margin-top:12px;color:var(--muted)">${sessionLabel}: <strong style="color:var(--text)">${raceName}</strong> — ${timeStr} Uhr${overrideNote}</p>`;
     }
   }
 
