@@ -1307,7 +1307,9 @@ let _liveNextRefreshAt = null;
 let _liveDataCache = null; // last successful fetch: { session, liveStandings, isLive, isRecent, isSoon, isQualifying, fetchedAt }
 let _manualGridOrder = null; // [{name, qualPos}] — current manual race grid order
 let _manualGridRace = null;  // race name the manual grid is for
-let _manualDragSrc = null;   // index being dragged
+let _manualDragSrc = null;   // index being dragged (mouse)
+let _touchGhost = null;      // floating clone element during touch drag
+let _touchDragTarget = null; // current hover target index during touch drag
 
 function clearLiveIntervals() {
   if (_liveAutoRefresh) { clearInterval(_liveAutoRefresh); _liveAutoRefresh = null; }
@@ -1592,12 +1594,29 @@ function _getNextPendingRace() {
   return RACES[RACES.length - 1];
 }
 
+function _mgSaveToSession() {
+  try {
+    sessionStorage.setItem('f1mg_race', _manualGridRace);
+    sessionStorage.setItem('f1mg_order', JSON.stringify(_manualGridOrder));
+  } catch(e) {}
+}
+
+function _mgRestoreFromSession(raceName) {
+  try {
+    if (sessionStorage.getItem('f1mg_race') === raceName) {
+      const o = JSON.parse(sessionStorage.getItem('f1mg_order'));
+      if (Array.isArray(o) && o.length > 0) return o;
+    }
+  } catch(e) {}
+  return null;
+}
+
 function renderManualGrid() {
   _manualGridRace = _getNextPendingRace();
   const allDrivers = [...new Set(Object.values(TEAMS).flatMap(t => t.drivers))];
   const raceData = RACE_DATA[_manualGridRace] || {};
 
-  _manualGridOrder = allDrivers.map(name => ({
+  const freshOrder = allDrivers.map(name => ({
     name,
     qualPos: raceData[name]?.qual_pos || null,
   })).sort((a, b) => {
@@ -1606,6 +1625,9 @@ function renderManualGrid() {
     if (b.qualPos) return 1;
     return a.name.localeCompare(b.name);
   });
+
+  // Restore saved order from this session if same race, otherwise use fresh
+  _manualGridOrder = _mgRestoreFromSession(_manualGridRace) || freshOrder;
 
   document.getElementById('liveStatusBar').innerHTML = `
     <span class="live-badge is-live">🔴 LIVE — Rennen läuft</span>
@@ -1648,6 +1670,9 @@ function _renderManualGridContent() {
       ondragover="mgDragOver(event,${i})"
       ondrop="mgDrop(event,${i})"
       ondragend="mgDragEnd()"
+      ontouchstart="mgTouchStart(event,${i})"
+      ontouchmove="mgTouchMove(event)"
+      ontouchend="mgTouchEnd(event)"
       id="mgRow${i}">
       <span class="mg-handle">⠿</span>
       <span class="mg-pos ${posClass}">${pos}</span>
@@ -1720,6 +1745,7 @@ function mgDrop(e, i) {
   const moved = _manualGridOrder.splice(_manualDragSrc, 1)[0];
   _manualGridOrder.splice(i, 0, moved);
   _manualDragSrc = null;
+  _mgSaveToSession();
   _renderManualGridContent();
 }
 
@@ -1728,39 +1754,55 @@ function mgDragEnd() {
   document.querySelectorAll('.mg-row').forEach(r => r.classList.remove('mg-dragging', 'mg-drag-over'));
 }
 
-function simulateManualGrid() {
-  // Inject mock Monaco 2026 qualifying data so the manual grid can be tested
-  // without a real API connection. Data resets on page reload.
-  const Q = pos => ({ qual_pos: pos, qual_pts: calcQualPts(pos), race_pos: null, race_pts: 0, pos_gained: 0, overall: calcQualPts(pos), dnf: false });
-  RACE_DATA['Monaco'] = {
-    'Leclerc':    Q(1),  'Russell':    Q(2),  'Verstappen': Q(3),  'Norris':     Q(4),
-    'Piastri':    Q(5),  'Hamilton':   Q(6),  'Antonelli':  Q(7),  'Sainz':      Q(8),
-    'Alonso':     Q(9),  'Gasly':      Q(10), 'Hadjar':     Q(11), 'Bearman':    Q(12),
-    'Albon':      Q(13), 'Ocon':       Q(14), 'Lawson':     Q(15), 'Bortoleto':  Q(16),
-    'Hülkenberg': Q(17), 'Stroll':     Q(18), 'Colapinto':  Q(19), 'Perez':      Q(20),
-    'Bottas':     Q(21), 'Lindblad':   Q(22),
-  };
+function mgTouchStart(e, i) {
+  _manualDragSrc = i;
+  _touchDragTarget = null;
+}
 
-  _manualGridRace = 'Monaco';
-  const allDrivers = [...new Set(Object.values(TEAMS).flatMap(t => t.drivers))];
-  _manualGridOrder = allDrivers
-    .map(name => ({ name, qualPos: RACE_DATA['Monaco'][name]?.qual_pos || null }))
-    .sort((a, b) => {
-      if (a.qualPos && b.qualPos) return a.qualPos - b.qualPos;
-      if (a.qualPos) return -1;
-      if (b.qualPos) return 1;
-      return a.name.localeCompare(b.name);
-    });
+function mgTouchMove(e) {
+  e.preventDefault(); // prevent page scroll during drag
+  const touch = e.touches[0];
 
-  document.getElementById('liveStatusBar').innerHTML = `
-    <span class="live-badge is-live">🔴 LIVE — Rennen läuft</span>
-    <span class="live-race-name">Monaco — Circuit de Monaco</span>
-    <span style="color:var(--muted);font-size:0.8rem">🧪 Simulation — So. 25. Mai, 15:00 Uhr</span>
-    <div class="live-refresh-info">
-      <button class="live-refresh-btn" onclick="fetchAndRenderLive()">↻ Auto-Daten prüfen</button>
-    </div>`;
+  if (!_touchGhost && _manualDragSrc !== null) {
+    const row = document.getElementById('mgRow' + _manualDragSrc);
+    if (!row) return;
+    const rect = row.getBoundingClientRect();
+    _touchGhost = row.cloneNode(true);
+    _touchGhost.id = 'mgGhost';
+    _touchGhost.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;` +
+      `opacity:0.88;pointer-events:none;z-index:9999;border-radius:6px;box-shadow:0 6px 24px rgba(0,0,0,0.5)`;
+    document.body.appendChild(_touchGhost);
+    row.classList.add('mg-dragging');
+  }
 
-  _renderManualGridContent();
+  if (_touchGhost) _touchGhost.style.top = (touch.clientY - 24) + 'px';
+
+  // Find which row the finger is over
+  if (_touchGhost) _touchGhost.style.visibility = 'hidden';
+  const el = document.elementFromPoint(touch.clientX, touch.clientY);
+  if (_touchGhost) _touchGhost.style.visibility = '';
+
+  document.querySelectorAll('.mg-row').forEach(r => r.classList.remove('mg-drag-over'));
+  const targetRow = el?.closest?.('[id^="mgRow"]');
+  if (targetRow && targetRow.id !== 'mgRow' + _manualDragSrc) {
+    targetRow.classList.add('mg-drag-over');
+    _touchDragTarget = parseInt(targetRow.id.replace('mgRow', ''));
+  } else {
+    _touchDragTarget = null;
+  }
+}
+
+function mgTouchEnd(e) {
+  if (_touchGhost) { _touchGhost.remove(); _touchGhost = null; }
+  document.querySelectorAll('.mg-row').forEach(r => r.classList.remove('mg-dragging', 'mg-drag-over'));
+  if (_manualDragSrc !== null && _touchDragTarget !== null && _manualDragSrc !== _touchDragTarget) {
+    const moved = _manualGridOrder.splice(_manualDragSrc, 1)[0];
+    _manualGridOrder.splice(_touchDragTarget, 0, moved);
+    _mgSaveToSession();
+    _renderManualGridContent();
+  }
+  _manualDragSrc = null;
+  _touchDragTarget = null;
 }
 
 function renderLiveUI(session, liveStandings, isLive, isRecent, isSoon, isQualifying, staleAgeMin) {
