@@ -189,6 +189,19 @@
   .live-driver-pos { font-weight: 700; width: 28px; }
   .live-driver-pts { font-weight: 700; font-size: 0.82rem; }
 
+  /* Manual drag grid */
+  .mg-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--surface); cursor: grab; user-select: none; transition: background 0.12s; }
+  .mg-row:last-child { border-bottom: none; }
+  .mg-row:hover { background: var(--surface2); }
+  .mg-row.mg-dragging { opacity: 0.35; cursor: grabbing; }
+  .mg-row.mg-drag-over { background: rgba(99,102,241,0.12); border-top: 2px solid var(--accent); }
+  .mg-handle { color: var(--muted); font-size: 1rem; cursor: grab; flex-shrink: 0; letter-spacing: -1px; }
+  .mg-pos { font-weight: 800; font-size: 0.95rem; color: var(--muted); width: 26px; text-align: center; flex-shrink: 0; }
+  .mg-pos.pos-1 { color: var(--gold); } .mg-pos.pos-2 { color: var(--silver); } .mg-pos.pos-3 { color: var(--bronze); }
+  .mg-name { flex: 1; font-size: 0.85rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mg-qual { font-size: 0.72rem; color: var(--muted); width: 28px; text-align: center; flex-shrink: 0; }
+  .mg-pts { font-weight: 700; font-size: 0.82rem; min-width: 38px; text-align: right; flex-shrink: 0; }
+
   /* Rules tab */
   .rules-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
   .rules-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
@@ -1292,6 +1305,9 @@ let _liveAutoRefresh = null;
 let _liveCountdown = null;
 let _liveNextRefreshAt = null;
 let _liveDataCache = null; // last successful fetch: { session, liveStandings, isLive, isRecent, isSoon, isQualifying, fetchedAt }
+let _manualGridOrder = null; // [{name, qualPos}] — current manual race grid order
+let _manualGridRace = null;  // race name the manual grid is for
+let _manualDragSrc = null;   // index being dragged
 
 function clearLiveIntervals() {
   if (_liveAutoRefresh) { clearInterval(_liveAutoRefresh); _liveAutoRefresh = null; }
@@ -1302,6 +1318,13 @@ async function renderLiveTab() {
   clearLiveIntervals();
   document.getElementById('liveStatusBar').innerHTML = '';
   document.getElementById('liveContent').innerHTML = '<div style="color:var(--muted);padding:24px 0">🔄 Lade Live-Daten…</div>';
+  // Pre-fetch schedule data in the background so _getNextPendingRace() has real dates available
+  if (SCHEDULE_DATA.length === 0) {
+    fetch(`${API_BASE}races.json?limit=30`)
+      .then(r => r.json())
+      .then(data => { SCHEDULE_DATA = data.MRData.RaceTable.Races; })
+      .catch(() => {}); // silent — fallback logic handles missing schedule
+  }
   await fetchAndRenderLive();
   // Auto-refresh every 30 s
   _liveNextRefreshAt = Date.now() + 30000;
@@ -1493,26 +1516,23 @@ async function fetchAndRenderLive() {
     console.error('Live fetch error:', e);
     const isBlock = e.message.startsWith('__OPENF1_BLOCK__:');
     if (isBlock && _liveDataCache) {
-      // Blocked during live session but we have cached data — show it with stale note
+      // Blocked during live session but we have cached data — show it with stale note + manual grid button
       const ageMin = Math.round((Date.now() - _liveDataCache.fetchedAt) / 60000);
       renderLiveUI(_liveDataCache.session, _liveDataCache.liveStandings,
         _liveDataCache.isLive, _liveDataCache.isRecent, _liveDataCache.isSoon, _liveDataCache.isQualifying, ageMin);
+      // Inject "✏️ Manuell" button into the status bar's refresh-info area
+      const _ri = document.querySelector('#liveStatusBar .live-refresh-info');
+      if (_ri) {
+        const _mb = document.createElement('button');
+        _mb.className = 'live-refresh-btn';
+        _mb.textContent = '✏️ Manuell';
+        _mb.title = 'Positionen manuell eingeben';
+        _mb.onclick = renderManualGrid;
+        _ri.insertBefore(_mb, _ri.firstChild);
+      }
     } else if (isBlock) {
-      // Blocked and no cache — explain clearly
-      document.getElementById('liveStatusBar').innerHTML = `
-        <span class="live-badge is-live">🔴 LIVE — Rennen läuft</span>
-        <div class="live-refresh-info">
-          <button class="live-refresh-btn" onclick="fetchAndRenderLive()">↻ Prüfen</button>
-        </div>`;
-      document.getElementById('liveContent').innerHTML = `
-        <div style="padding:32px 0;text-align:center">
-          <div style="font-size:2.5rem">🔒</div>
-          <div style="font-size:1rem;font-weight:700;margin-top:12px">OpenF1 sperrt kostenlosen Zugriff während eines Live-Rennens</div>
-          <div style="color:var(--muted);margin-top:8px;max-width:420px;margin-left:auto;margin-right:auto">
-            Die Daten sind wieder verfügbar, sobald das Rennen beendet ist.<br>
-            Bitte nach dem Rennen erneut laden.
-          </div>
-        </div>`;
+      // Blocked and no cache — show interactive manual drag grid
+      renderManualGrid();
     } else if (_liveDataCache) {
       const ageMin = Math.round((Date.now() - _liveDataCache.fetchedAt) / 60000);
       renderLiveUI(_liveDataCache.session, _liveDataCache.liveStandings,
@@ -1527,6 +1547,220 @@ async function fetchAndRenderLive() {
         `<div style="color:var(--muted);padding:24px 0">Fehler beim Laden: ${e.message}</div>`;
     }
   }
+}
+
+// ── Manual drag grid (shown when OpenF1 blocks live race access) ──────────
+
+function _getNextPendingRace() {
+  // Primary: use SCHEDULE_DATA (real dates from Ergast) to find the race closest to today
+  if (SCHEDULE_DATA.length > 0) {
+    const today = new Date().toISOString().slice(0, 10);
+    // Find races on or before today, ordered newest first — pick the first one that
+    // either has no race data or only has qualifying data (race_pos still null)
+    const candidates = SCHEDULE_DATA
+      .filter(r => r.date <= today)
+      .sort((a, b) => b.date.localeCompare(a.date)); // newest first
+
+    for (const apiRace of candidates) {
+      const gameName = API_NAME_MAP[apiRace.raceName];
+      if (!gameName) continue;
+      if (CANCELED_RACES.has(gameName)) continue;
+      const d = RACE_DATA[gameName];
+      // No data yet → race hasn't been processed (pending)
+      if (!d || Object.keys(d).length === 0) return gameName;
+      // Has data but no race_pos → qualifying done, race in progress/pending
+      if (!Object.values(d).some(v => v.race_pos !== null)) return gameName;
+      // Has full race data → this race is done, stop here
+      break;
+    }
+    // All past races are done → next upcoming race
+    const upcoming = SCHEDULE_DATA.find(r => r.date > today);
+    if (upcoming) {
+      const gameName = API_NAME_MAP[upcoming.raceName];
+      if (gameName) return gameName;
+    }
+  }
+
+  // Fallback: walk RACES array and return first counting race without completed data
+  for (let i = FIRST_COUNTING_RACE; i < RACES.length; i++) {
+    const r = RACES[i];
+    if (CANCELED_RACES.has(r)) continue;
+    const d = RACE_DATA[r];
+    if (!d || Object.keys(d).length === 0) return r;
+    if (!Object.values(d).some(v => v.race_pos !== null)) return r;
+  }
+  return RACES[RACES.length - 1];
+}
+
+function renderManualGrid() {
+  _manualGridRace = _getNextPendingRace();
+  const allDrivers = [...new Set(Object.values(TEAMS).flatMap(t => t.drivers))];
+  const raceData = RACE_DATA[_manualGridRace] || {};
+
+  _manualGridOrder = allDrivers.map(name => ({
+    name,
+    qualPos: raceData[name]?.qual_pos || null,
+  })).sort((a, b) => {
+    if (a.qualPos && b.qualPos) return a.qualPos - b.qualPos;
+    if (a.qualPos) return -1;
+    if (b.qualPos) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  document.getElementById('liveStatusBar').innerHTML = `
+    <span class="live-badge is-live">🔴 LIVE — Rennen läuft</span>
+    <span class="live-race-name">${_manualGridRace}</span>
+    <span style="color:var(--muted);font-size:0.8rem">OpenF1 gesperrt — manuelle Eingabe</span>
+    <div class="live-refresh-info">
+      <button class="live-refresh-btn" onclick="fetchAndRenderLive()">↻ Auto-Daten prüfen</button>
+    </div>`;
+
+  _renderManualGridContent();
+}
+
+function _renderManualGridContent() {
+  const raceData = RACE_DATA[_manualGridRace] || {};
+  const driverToPlayer = {};
+  Object.entries(TEAMS).forEach(([pl, team]) => team.drivers.forEach(d => { driverToPlayer[d] = pl; }));
+
+  const standings = computeStandings();
+  const preRaceTotals = {};
+  standings.forEach(s => { preRaceTotals[s.player] = s.total; });
+
+  const teamPts = {};
+  Object.keys(TEAMS).forEach(p => { teamPts[p] = 0; });
+
+  const rows = _manualGridOrder.map((dr, i) => {
+    const pos = i + 1;
+    const racePts = calcRacePts(pos);
+    const qualPts = dr.qualPos ? calcQualPts(dr.qualPos) : (raceData[dr.name]?.qual_pts || 0);
+    const posGained = dr.qualPos ? Math.max(0, dr.qualPos - pos) : 0;
+    const totalPts = qualPts + racePts + posGained;
+    const player = driverToPlayer[dr.name];
+    if (player) teamPts[player] += totalPts;
+
+    const pColor = player ? TEAMS[player].color : 'var(--border)';
+    const posClass = pos <= 3 ? `pos-${pos}` : '';
+    const ptsColor = totalPts > 0 ? 'var(--green)' : totalPts < 0 ? 'var(--red)' : 'var(--muted)';
+
+    return `<div class="mg-row" draggable="true"
+      ondragstart="mgDragStart(event,${i})"
+      ondragover="mgDragOver(event,${i})"
+      ondrop="mgDrop(event,${i})"
+      ondragend="mgDragEnd()"
+      id="mgRow${i}">
+      <span class="mg-handle">⠿</span>
+      <span class="mg-pos ${posClass}">${pos}</span>
+      <span class="live-owner-dot" style="background:${pColor}"></span>
+      <span class="mg-name">${dr.name}${constructorBadge(dr.name)}</span>
+      <span class="mg-qual" title="Qualifying-Position">${dr.qualPos ? `Q${dr.qualPos}` : '–'}</span>
+      <span class="mg-pts" style="color:${ptsColor}">${totalPts > 0 ? '+' : ''}${totalPts}</span>
+    </div>`;
+  }).join('');
+
+  const teamCards = Object.keys(TEAMS).map(player => {
+    const pts = teamPts[player];
+    const preTotal = preRaceTotals[player] || 0;
+    const newTotal = preTotal + pts;
+    const color = TEAMS[player].color;
+    const deltaClass = pts > 0 ? 'pos' : pts < 0 ? 'neg' : 'zero';
+    return { player, pts, preTotal, newTotal, color, deltaClass };
+  }).sort((a, b) => b.newTotal - a.newTotal).map((t, rank) => {
+    const rankBadge = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : `#${rank+1}`;
+    return `<div class="live-team-card" style="border-color:${t.color}33">
+      <div class="live-team-header">
+        <span style="font-size:1.1rem">${rankBadge}</span>
+        <span class="live-team-name" style="color:${t.color}">${t.player}</span>
+        <span class="live-team-total" style="color:${t.color}">${t.newTotal}</span>
+        <span class="live-team-delta ${t.deltaClass}">${t.pts > 0 ? '+' : ''}${t.pts} heute</span>
+        <span style="color:var(--muted);font-size:0.75rem;margin-left:auto">${t.preTotal} + ${t.pts}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  const hasQualData = _manualGridOrder.some(d => d.qualPos !== null);
+
+  document.getElementById('liveContent').innerHTML = `
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;margin-bottom:14px;font-size:0.82rem;color:var(--muted);display:flex;align-items:center;flex-wrap:wrap;gap:10px">
+      🔒 <strong style="color:var(--text)">OpenF1 sperrt Zugriff während eines Live-Rennens.</strong>
+      ${hasQualData
+        ? 'Qualifying-Reihenfolge vorbelegt — ziehe die Fahrer auf ihre aktuelle Position im Rennen.'
+        : 'Keine Qualifying-Daten vorhanden — ziehe die Fahrer in die Reihenfolge, die du im Stream siehst.'}
+      ${hasQualData ? '<span style="font-size:0.76rem;display:block;width:100%">Qual-Punkte sind bereits eingerechnet. Nur Rennen-Pkt &amp; Positionen-Gewinn ändern sich beim Umsortieren.</span>' : ''}
+    </div>
+    <div class="live-grid">
+      <div>
+        <div class="section-title">🏎 Reihenfolge — ${_manualGridRace}</div>
+        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">${rows}</div>
+      </div>
+      <div>
+        <div class="section-title">📊 Team-Prognose (Schätzung)</div>
+        <div class="live-team-cards">${teamCards}</div>
+      </div>
+    </div>`;
+}
+
+function mgDragStart(e, i) {
+  _manualDragSrc = i;
+  e.dataTransfer.effectAllowed = 'move';
+  setTimeout(() => document.getElementById('mgRow' + i)?.classList.add('mg-dragging'), 0);
+}
+
+function mgDragOver(e, i) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('.mg-row').forEach(r => r.classList.remove('mg-drag-over'));
+  if (_manualDragSrc !== null && _manualDragSrc !== i)
+    document.getElementById('mgRow' + i)?.classList.add('mg-drag-over');
+}
+
+function mgDrop(e, i) {
+  e.preventDefault();
+  if (_manualDragSrc === null || _manualDragSrc === i) return;
+  const moved = _manualGridOrder.splice(_manualDragSrc, 1)[0];
+  _manualGridOrder.splice(i, 0, moved);
+  _manualDragSrc = null;
+  _renderManualGridContent();
+}
+
+function mgDragEnd() {
+  _manualDragSrc = null;
+  document.querySelectorAll('.mg-row').forEach(r => r.classList.remove('mg-dragging', 'mg-drag-over'));
+}
+
+function simulateManualGrid() {
+  // Inject mock Monaco 2026 qualifying data so the manual grid can be tested
+  // without a real API connection. Data resets on page reload.
+  const Q = pos => ({ qual_pos: pos, qual_pts: calcQualPts(pos), race_pos: null, race_pts: 0, pos_gained: 0, overall: calcQualPts(pos), dnf: false });
+  RACE_DATA['Monaco'] = {
+    'Leclerc':    Q(1),  'Russell':    Q(2),  'Verstappen': Q(3),  'Norris':     Q(4),
+    'Piastri':    Q(5),  'Hamilton':   Q(6),  'Antonelli':  Q(7),  'Sainz':      Q(8),
+    'Alonso':     Q(9),  'Gasly':      Q(10), 'Hadjar':     Q(11), 'Bearman':    Q(12),
+    'Albon':      Q(13), 'Ocon':       Q(14), 'Lawson':     Q(15), 'Bortoleto':  Q(16),
+    'Hülkenberg': Q(17), 'Stroll':     Q(18), 'Colapinto':  Q(19), 'Perez':      Q(20),
+    'Bottas':     Q(21), 'Lindblad':   Q(22),
+  };
+
+  _manualGridRace = 'Monaco';
+  const allDrivers = [...new Set(Object.values(TEAMS).flatMap(t => t.drivers))];
+  _manualGridOrder = allDrivers
+    .map(name => ({ name, qualPos: RACE_DATA['Monaco'][name]?.qual_pos || null }))
+    .sort((a, b) => {
+      if (a.qualPos && b.qualPos) return a.qualPos - b.qualPos;
+      if (a.qualPos) return -1;
+      if (b.qualPos) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+  document.getElementById('liveStatusBar').innerHTML = `
+    <span class="live-badge is-live">🔴 LIVE — Rennen läuft</span>
+    <span class="live-race-name">Monaco — Circuit de Monaco</span>
+    <span style="color:var(--muted);font-size:0.8rem">🧪 Simulation — So. 25. Mai, 15:00 Uhr</span>
+    <div class="live-refresh-info">
+      <button class="live-refresh-btn" onclick="fetchAndRenderLive()">↻ Auto-Daten prüfen</button>
+    </div>`;
+
+  _renderManualGridContent();
 }
 
 function renderLiveUI(session, liveStandings, isLive, isRecent, isSoon, isQualifying, staleAgeMin) {
