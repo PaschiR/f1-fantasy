@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>🏎️ F1 Fantasy 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #0a0a0f;
@@ -21,24 +24,27 @@
     --red: #e10600;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh;
+         background-image: radial-gradient(ellipse 70% 35% at 50% 0%, rgba(225,6,0,0.07) 0%, transparent 65%); }
 
   /* Header */
-  .header { background: linear-gradient(135deg, #0d0d14 0%, #1a0005 100%); border-bottom: 2px solid var(--accent); padding: 20px 32px; display: flex; align-items: center; gap: 16px; }
-  .header h1 { font-size: 1.8rem; font-weight: 800; letter-spacing: -0.5px; }
+  .header { background: linear-gradient(135deg, #0d0d14 0%, #1a0005 100%); border-bottom: 2px solid var(--accent); padding: 20px 32px; display: flex; align-items: center; gap: 16px; position: relative; overflow: hidden; }
+  .header::before { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 45%; background: repeating-linear-gradient(-55deg, transparent, transparent 12px, rgba(225,6,0,0.045) 12px, rgba(225,6,0,0.045) 24px); pointer-events: none; }
+  .header::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(225,6,0,0.5) 30%, rgba(255,135,0,0.3) 60%, transparent); }
+  .header h1 { font-size: 1.9rem; font-weight: 700; letter-spacing: 2px; font-family: 'Rajdhani', 'Segoe UI', system-ui, sans-serif; text-transform: uppercase; position: relative; }
   .header h1 span { color: var(--accent); }
   .header .subtitle { color: var(--muted); font-size: 0.85rem; margin-top: 2px; }
   .header-right { margin-left: auto; text-align: right; }
   .last-updated { font-size: 0.75rem; color: var(--muted); }
-  .refresh-btn { background: var(--accent); color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; margin-top: 4px; transition: opacity 0.2s; }
-  .refresh-btn:hover { opacity: 0.85; }
-  .refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .refresh-btn { background: linear-gradient(135deg, var(--accent) 0%, #b80400 100%); color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; margin-top: 4px; transition: all 0.2s; box-shadow: 0 2px 10px rgba(225,6,0,0.35); }
+  .refresh-btn:hover { opacity: 0.9; box-shadow: 0 4px 18px rgba(225,6,0,0.5); transform: translateY(-1px); }
+  .refresh-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
 
   /* Nav Tabs */
   .nav { display: flex; gap: 2px; padding: 0 32px; background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto; }
   .nav-tab { padding: 12px 20px; cursor: pointer; font-size: 0.85rem; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; white-space: nowrap; transition: all 0.2s; }
   .nav-tab:hover { color: var(--text); background: var(--surface2); }
-  .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); text-shadow: 0 0 14px rgba(225,6,0,0.5); }
   .nav-tab.completed::after { content: ' ✓'; color: var(--green); font-size: 0.7rem; }
 
   /* Main content */
@@ -48,10 +54,10 @@
 
   /* Standings */
   .standings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
-  .player-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; position: relative; overflow: hidden; transition: border-color 0.2s, transform 0.2s; }
-  .player-card:hover { border-color: var(--accent); transform: translateY(-2px); cursor: pointer; }
-  .player-card.rank-1 { border-color: var(--gold); background: linear-gradient(135deg, var(--surface) 0%, #1a1500 100%); }
-  .player-card.rank-2 { border-color: var(--silver); }
+  .player-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; position: relative; overflow: hidden; transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s; }
+  .player-card:hover { border-color: var(--accent); transform: translateY(-3px); box-shadow: 0 8px 28px rgba(0,0,0,0.35); cursor: pointer; }
+  .player-card.rank-1 { border-color: var(--gold); background: linear-gradient(135deg, var(--surface) 0%, #1a1500 100%); box-shadow: 0 0 24px rgba(255,215,0,0.14), 0 0 48px rgba(255,215,0,0.05); }
+  .player-card.rank-2 { border-color: var(--silver); box-shadow: 0 0 14px rgba(192,192,192,0.08); }
   .player-card.rank-3 { border-color: var(--bronze); }
   .player-rank { position: absolute; top: 12px; right: 14px; font-size: 2rem; font-weight: 900; opacity: 0.15; }
   .player-rank.rank-1 { color: var(--gold); opacity: 0.4; }
@@ -68,7 +74,7 @@
   .rank-badge.r4, .rank-badge.r5 { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
 
   /* Section headers */
-  .section-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  .section-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 18px; padding-bottom: 0; padding-left: 12px; border-left: 3px solid var(--accent); border-bottom: none; display: flex; align-items: center; gap: 10px; line-height: 1.4; }
   .section-title .badge { background: var(--accent); color: white; font-size: 0.65rem; padding: 2px 8px; border-radius: 10px; font-weight: 700; text-transform: uppercase; }
 
   /* Race history table */
@@ -141,6 +147,12 @@
   .api-dot.offline { background: var(--muted); }
   .api-dot.error { background: var(--red); }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 
   /* Notification toast */
   .toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 20px; font-size: 0.82rem; z-index: 1000; transform: translateY(100px); opacity: 0; transition: all 0.3s; }
