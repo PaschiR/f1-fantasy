@@ -202,7 +202,7 @@
   .live-driver-pts { font-weight: 700; font-size: 0.82rem; }
 
   /* Manual drag grid */
-  .mg-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--surface); cursor: grab; user-select: none; transition: background 0.12s; }
+  .mg-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--surface); cursor: grab; user-select: none; touch-action: none; transition: background 0.12s; }
   .mg-row:last-child { border-bottom: none; }
   .mg-row:hover { background: var(--surface2); }
   .mg-row.mg-dragging { opacity: 0.35; cursor: grabbing; }
@@ -260,6 +260,8 @@
     .last-updated { font-size: 0.72rem; flex: 1; }
     .api-status { margin: 0 !important; flex-shrink: 0; }
     .refresh-btn { margin-top: 0 !important; padding: 6px 12px; font-size: 0.75rem; white-space: nowrap; flex-shrink: 0; }
+    .mg-row { padding: 12px 14px; min-height: 48px; }
+    .mg-handle { font-size: 1.2rem; padding: 0 4px; }
   }
 </style>
 </head>
@@ -1373,10 +1375,11 @@ async function fetchAndRenderLive() {
   const fetchJsonSafe = async (url, label) => {
     try {
       const r = await fetch(url);
-      // Parse body BEFORE checking r.ok — OpenF1 sends {"detail":"..."} on 4xx during live sessions
+      // 401 = OpenF1 free-tier block during ANY live session (empty body, no JSON)
+      if (r.status === 401) throw new Error('__OPENF1_BLOCK__:401 Unauthorized');
+      // Parse body to check for OpenF1's {"detail":"..."} block message
       const data = await r.json();
       if (Array.isArray(data)) return data;
-      // OpenF1 blocks unauthenticated access during live sessions — surface that clearly
       if (data?.detail) throw new Error(`__OPENF1_BLOCK__:${data.detail}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return null;
@@ -1739,8 +1742,6 @@ function _renderManualGridContent() {
       ondrop="mgDrop(event,${i})"
       ondragend="mgDragEnd()"
       ontouchstart="mgTouchStart(event,${i})"
-      ontouchmove="mgTouchMove(event)"
-      ontouchend="mgTouchEnd(event)"
       id="mgRow${i}">
       <span class="mg-handle">⠿</span>
       <span class="mg-pos ${posClass}">${pos}</span>
@@ -1776,8 +1777,8 @@ function _renderManualGridContent() {
   const _hint = _manualGridIsQualifying
     ? { icon: '⏱️', title: 'OpenF1 nicht erreichbar — Qualifying läuft gerade.', body: 'Ziehe die Fahrer in die aktuelle Qualifying-Reihenfolge. Punkte werden pro Position berechnet.', sub: '' }
     : hasQualData
-      ? { icon: '🔒', title: 'OpenF1 nicht erreichbar — Rennen läuft gerade.', body: 'Qualifying-Reihenfolge vorbelegt — ziehe die Fahrer auf ihre aktuelle Position im Rennen.', sub: 'Qual-Punkte sind bereits eingerechnet. Nur Rennen-Pkt &amp; Positions-Gewinn ändern sich beim Umsortieren.' }
-      : { icon: '🔒', title: 'OpenF1 nicht erreichbar — Rennen läuft gerade.', body: 'Keine Qualifying-Daten vorhanden — ziehe die Fahrer in die Reihenfolge, die du im Stream siehst.', sub: '' };
+      ? { icon: '🔒', title: 'OpenF1 (Free) sperrt Zugriff während laufender Sessions.', body: 'Qualifying-Reihenfolge vorbelegt — ziehe die Fahrer auf ihre aktuelle Position im Rennen.', sub: 'Qual-Punkte sind bereits eingerechnet. Nur Rennen-Pkt &amp; Positions-Gewinn ändern sich beim Umsortieren.' }
+      : { icon: '🔒', title: 'OpenF1 (Free) sperrt Zugriff während laufender Sessions.', body: 'Keine Qualifying-Daten vorhanden — ziehe die Fahrer in die Reihenfolge, die du im Stream siehst.', sub: '' };
   const _sectionIcon = _manualGridIsQualifying ? '⏱️' : '🏎';
 
   document.getElementById('liveContent').innerHTML = `
@@ -1828,8 +1829,12 @@ function mgDragEnd() {
 }
 
 function mgTouchStart(e, i) {
+  e.preventDefault();
   _manualDragSrc = i;
   _touchDragTarget = null;
+  // Register non-passive listeners on document so e.preventDefault() actually works on iOS Safari
+  document.addEventListener('touchmove', mgTouchMove, { passive: false });
+  document.addEventListener('touchend', mgTouchEnd, { once: true });
 }
 
 function mgTouchMove(e) {
@@ -1866,6 +1871,7 @@ function mgTouchMove(e) {
 }
 
 function mgTouchEnd(e) {
+  document.removeEventListener('touchmove', mgTouchMove);
   if (_touchGhost) { _touchGhost.remove(); _touchGhost = null; }
   document.querySelectorAll('.mg-row').forEach(r => r.classList.remove('mg-dragging', 'mg-drag-over'));
   if (_manualDragSrc !== null && _touchDragTarget !== null && _manualDragSrc !== _touchDragTarget) {
