@@ -29,7 +29,7 @@
 
   /* Header */
   .header { background: linear-gradient(135deg, #0d0d14 0%, #1a0005 100%); border-bottom: 2px solid var(--accent); padding: 20px 32px; display: flex; align-items: center; gap: 16px; position: relative; overflow: hidden; }
-  .header::before { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 45%; background: repeating-linear-gradient(-55deg, transparent, transparent 12px, rgba(225,6,0,0.045) 12px, rgba(225,6,0,0.045) 24px); pointer-events: none; }
+  .header::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: repeating-linear-gradient(-55deg, transparent, transparent 12px, rgba(225,6,0,0.055) 12px, rgba(225,6,0,0.055) 24px); -webkit-mask-image: linear-gradient(to right, transparent 0%, black 55%); mask-image: linear-gradient(to right, transparent 0%, black 55%); pointer-events: none; }
   .header::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(225,6,0,0.5) 30%, rgba(255,135,0,0.3) 60%, transparent); }
   .header h1 { font-size: 1.9rem; font-weight: 700; letter-spacing: 2px; font-family: 'Rajdhani', 'Segoe UI', system-ui, sans-serif; text-transform: uppercase; position: relative; }
   .header h1 span { color: var(--accent); }
@@ -1331,6 +1331,7 @@ let _liveNextRefreshAt = null;
 let _liveDataCache = null; // last successful fetch: { session, liveStandings, isLive, isRecent, isSoon, isQualifying, fetchedAt }
 let _manualGridOrder = null; // [{name, qualPos}] — current manual race grid order
 let _manualGridRace = null;  // race name the manual grid is for
+let _manualGridIsQualifying = false; // true when we're in a qualifying (not race) session
 let _manualDragSrc = null;   // index being dragged (mouse)
 let _touchGhost = null;      // floating clone element during touch drag
 let _touchDragTarget = null; // current hover target index during touch drag
@@ -1372,11 +1373,12 @@ async function fetchAndRenderLive() {
   const fetchJsonSafe = async (url, label) => {
     try {
       const r = await fetch(url);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      // Parse body BEFORE checking r.ok — OpenF1 sends {"detail":"..."} on 4xx during live sessions
       const data = await r.json();
       if (Array.isArray(data)) return data;
       // OpenF1 blocks unauthenticated access during live sessions — surface that clearly
       if (data?.detail) throw new Error(`__OPENF1_BLOCK__:${data.detail}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return null;
     } catch(e) {
       if (e.message.startsWith('__OPENF1_BLOCK__:')) throw e; // re-throw to outer handler
@@ -1409,20 +1411,50 @@ async function fetchAndRenderLive() {
         renderLiveUI(_liveDataCache.session, _liveDataCache.liveStandings,
           _liveDataCache.isLive, _liveDataCache.isRecent, _liveDataCache.isSoon, _liveDataCache.isQualifying, ageMin);
       } else {
-        document.getElementById('liveStatusBar').innerHTML = `
-          <span class="live-badge is-none">⚠️ Keine Verbindung</span>
-          <div class="live-refresh-info">
-            <button class="live-refresh-btn" onclick="fetchAndRenderLive()">&#8635; Erneut versuchen</button>
-          </div>`;
-        document.getElementById('liveContent').innerHTML = `
-          <div style="padding:32px 0;text-align:center">
-            <div style="font-size:2.5rem">📡</div>
-            <div style="font-size:1rem;font-weight:700;margin-top:12px">OpenF1 nicht erreichbar</div>
-            <div style="color:var(--muted);margin-top:8px;max-width:420px;margin-left:auto;margin-right:auto">
-              Hinweis: Während eines laufenden Rennens sperrt OpenF1 den kostenlosen Zugriff.<br>
-              Die Live-Ansicht ist verfügbar bei: Qualifying, zwischen den Sessions, und nach dem Rennen.
-            </div>
-          </div>`;
+        // Try to load SCHEDULE_DATA now if not already loaded (uses a different API — might be reachable even when OpenF1 is not)
+        if (SCHEDULE_DATA.length === 0) {
+          try {
+            const sr = await fetch(`${API_BASE}races.json?limit=30`);
+            const sd = await sr.json();
+            SCHEDULE_DATA = sd.MRData.RaceTable.Races || [];
+          } catch(e2) { /* silent */ }
+        }
+        // Check if we're currently within a known qualifying or race window in the schedule
+        const _now = new Date();
+        const _today = _now.toISOString().slice(0, 10);
+        let _inWindow = false;
+        for (const race of SCHEDULE_DATA) {
+          // Qualifying window: from 15min before scheduled start to 3h after
+          if (race.Qualifying?.date === _today && race.Qualifying?.time) {
+            const qS = new Date(`${race.Qualifying.date}T${race.Qualifying.time}`);
+            if (_now >= new Date(qS - 15*60000) && _now <= new Date(+qS + 3*3600000)) { _inWindow = true; break; }
+          }
+          // Race window: from 15min before to 3h after
+          if (race.date === _today && race.time) {
+            const rS = new Date(`${race.date}T${race.time}`);
+            if (_now >= new Date(rS - 15*60000) && _now <= new Date(+rS + 3*3600000)) { _inWindow = true; break; }
+          }
+        }
+        if (_inWindow) {
+          // We're in an active session window — go straight to manual grid
+          renderManualGrid();
+        } else {
+          document.getElementById('liveStatusBar').innerHTML = `
+            <span class="live-badge is-none">⚠️ Keine Verbindung</span>
+            <div class="live-refresh-info">
+              <button class="live-refresh-btn" onclick="renderManualGrid()">✏️ Manuell</button>
+              <button class="live-refresh-btn" onclick="fetchAndRenderLive()">&#8635; Erneut versuchen</button>
+            </div>`;
+          document.getElementById('liveContent').innerHTML = `
+            <div style="padding:32px 0;text-align:center">
+              <div style="font-size:2.5rem">📡</div>
+              <div style="font-size:1rem;font-weight:700;margin-top:12px">OpenF1 nicht erreichbar</div>
+              <div style="color:var(--muted);margin-top:8px;max-width:420px;margin-left:auto;margin-right:auto">
+                Die Verbindung zu OpenF1 ist fehlgeschlagen (Netzwerk oder Proxy).<br>
+                Positionen können über <strong>Manuell</strong> eingegeben werden.
+              </div>
+            </div>`;
+        }
       }
       return;
     }
@@ -1637,6 +1669,16 @@ function _mgRestoreFromSession(raceName) {
 
 function renderManualGrid() {
   _manualGridRace = _getNextPendingRace();
+
+  // Detect qualifying vs race from schedule
+  const _today = new Date().toISOString().slice(0, 10);
+  _manualGridIsQualifying = SCHEDULE_DATA.some(r => r.Qualifying?.date === _today);
+  // If schedule not loaded yet, fall back: no existing race_pos data means qual day is possible
+  if (SCHEDULE_DATA.length === 0) {
+    const raceEntry = Object.values(RACE_DATA[_manualGridRace] || {});
+    _manualGridIsQualifying = raceEntry.length === 0 || !raceEntry.some(v => v.race_pos !== null);
+  }
+
   const allDrivers = [...new Set(Object.values(TEAMS).flatMap(t => t.drivers))];
   const raceData = RACE_DATA[_manualGridRace] || {};
 
@@ -1653,10 +1695,12 @@ function renderManualGrid() {
   // Restore saved order from this session if same race, otherwise use fresh
   _manualGridOrder = _mgRestoreFromSession(_manualGridRace) || freshOrder;
 
+  const sessionLabel = _manualGridIsQualifying ? '⏱️ LIVE — Qualifying' : '🔴 LIVE — Rennen läuft';
+  const badgeClass = _manualGridIsQualifying ? 'is-soon' : 'is-live';
   document.getElementById('liveStatusBar').innerHTML = `
-    <span class="live-badge is-live">🔴 LIVE — Rennen läuft</span>
+    <span class="live-badge ${badgeClass}">${sessionLabel}</span>
     <span class="live-race-name">${_manualGridRace}</span>
-    <span style="color:var(--muted);font-size:0.8rem">OpenF1 gesperrt — manuelle Eingabe</span>
+    <span style="color:var(--muted);font-size:0.8rem">OpenF1 nicht erreichbar — manuelle Eingabe</span>
     <div class="live-refresh-info">
       <button class="live-refresh-btn" onclick="fetchAndRenderLive()">↻ Auto-Daten prüfen</button>
     </div>`;
@@ -1678,9 +1722,9 @@ function _renderManualGridContent() {
 
   const rows = _manualGridOrder.map((dr, i) => {
     const pos = i + 1;
-    const racePts = calcRacePts(pos);
-    const qualPts = dr.qualPos ? calcQualPts(dr.qualPos) : (raceData[dr.name]?.qual_pts || 0);
-    const posGained = dr.qualPos ? Math.max(0, dr.qualPos - pos) : 0;
+    const racePts = _manualGridIsQualifying ? 0 : calcRacePts(pos);
+    const qualPts = _manualGridIsQualifying ? calcQualPts(pos) : (dr.qualPos ? calcQualPts(dr.qualPos) : (raceData[dr.name]?.qual_pts || 0));
+    const posGained = (!_manualGridIsQualifying && dr.qualPos) ? Math.max(0, dr.qualPos - pos) : 0;
     const totalPts = qualPts + racePts + posGained;
     const player = driverToPlayer[dr.name];
     if (player) teamPts[player] += totalPts;
@@ -1729,17 +1773,22 @@ function _renderManualGridContent() {
 
   const hasQualData = _manualGridOrder.some(d => d.qualPos !== null);
 
+  const _hint = _manualGridIsQualifying
+    ? { icon: '⏱️', title: 'OpenF1 nicht erreichbar — Qualifying läuft gerade.', body: 'Ziehe die Fahrer in die aktuelle Qualifying-Reihenfolge. Punkte werden pro Position berechnet.', sub: '' }
+    : hasQualData
+      ? { icon: '🔒', title: 'OpenF1 nicht erreichbar — Rennen läuft gerade.', body: 'Qualifying-Reihenfolge vorbelegt — ziehe die Fahrer auf ihre aktuelle Position im Rennen.', sub: 'Qual-Punkte sind bereits eingerechnet. Nur Rennen-Pkt &amp; Positions-Gewinn ändern sich beim Umsortieren.' }
+      : { icon: '🔒', title: 'OpenF1 nicht erreichbar — Rennen läuft gerade.', body: 'Keine Qualifying-Daten vorhanden — ziehe die Fahrer in die Reihenfolge, die du im Stream siehst.', sub: '' };
+  const _sectionIcon = _manualGridIsQualifying ? '⏱️' : '🏎';
+
   document.getElementById('liveContent').innerHTML = `
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 16px;margin-bottom:14px;font-size:0.82rem;color:var(--muted);display:flex;align-items:center;flex-wrap:wrap;gap:10px">
-      🔒 <strong style="color:var(--text)">OpenF1 sperrt Zugriff während eines Live-Rennens.</strong>
-      ${hasQualData
-        ? 'Qualifying-Reihenfolge vorbelegt — ziehe die Fahrer auf ihre aktuelle Position im Rennen.'
-        : 'Keine Qualifying-Daten vorhanden — ziehe die Fahrer in die Reihenfolge, die du im Stream siehst.'}
-      ${hasQualData ? '<span style="font-size:0.76rem;display:block;width:100%">Qual-Punkte sind bereits eingerechnet. Nur Rennen-Pkt &amp; Positionen-Gewinn ändern sich beim Umsortieren.</span>' : ''}
+      ${_hint.icon} <strong style="color:var(--text)">${_hint.title}</strong>
+      ${_hint.body}
+      ${_hint.sub ? `<span style="font-size:0.76rem;display:block;width:100%">${_hint.sub}</span>` : ''}
     </div>
     <div class="live-grid">
       <div>
-        <div class="section-title">🏎 Reihenfolge — ${_manualGridRace}</div>
+        <div class="section-title">${_sectionIcon} Reihenfolge — ${_manualGridRace}</div>
         <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">${rows}</div>
       </div>
       <div>
