@@ -978,11 +978,13 @@ function renderRaceDetail() {
       const isDNF = dr.race_pos === 'DNF';
       const racePos = isDNF ? '<span style="background:#3a0000;color:#ff6666;padding:1px 6px;border-radius:3px;font-size:0.75rem;font-weight:700">DNF</span>' : (dr.race_pos ? `P${dr.race_pos}` : '–');
       const qualPos = dr.qual_pos ? `P${dr.qual_pos}` : '–';
+      const gridNote = (dr.grid_pos && dr.qual_pos && dr.grid_pos > dr.qual_pos)
+        ? ` <span title="Startposition nach Strafe" style="color:var(--red);font-size:0.7rem">→P${dr.grid_pos}</span>` : '';
       const sty = dr.overall > 0 ? 'pts-pos' : dr.overall < 0 ? 'pts-neg' : 'pts-zero';
       return `<tr>
         <td class="sticky-col" style="padding-left:18px"><strong>${d}</strong>${constructorBadge(d)}</td>
         <td style="color:${color}">${player}</td>
-        <td>${qualPos}</td>
+        <td>${qualPos}${gridNote}</td>
         <td class="${dr.qual_pts > 0 ? 'pts-pos' : 'pts-zero'}">${dr.qual_pts > 0 ? '+' : ''}${dr.qual_pts || 0}</td>
         <td>${racePos}</td>
         <td class="${isDNF ? 'pts-neg' : dr.race_pts > 0 ? 'pts-pos' : 'pts-zero'}">${isDNF ? '−5' : dr.race_pts > 0 ? `+${dr.race_pts}` : (dr.race_pts || 0)}</td>
@@ -2214,13 +2216,18 @@ async function fetchLatestResults() {
 
         const qualPts = calcQualPts(qualPos);
         const racePts = isDNF ? -5 : calcRacePts(racePos);
-        // Use qualifying position (not starting grid) for positions gained — matches game rules
-        const posGained = (qualPos && racePos && racePos !== 'DNF') ? Math.max(0, qualPos - racePos) : 0;
+        // Use the WORSE of qualifying pos and grid start pos so grid penalties
+        // (driver starts further back) correctly increase positions gained.
+        // grid=0 means pit lane start — treat as last (20th).
+        const gridPos = (grid && grid > 0) ? grid : (grid === 0 ? 20 : qualPos);
+        const startPos = (qualPos && gridPos) ? Math.max(qualPos, gridPos) : (qualPos || gridPos);
+        const posGained = (startPos && racePos && racePos !== 'DNF') ? Math.max(0, startPos - racePos) : 0;
         const overall = qualPts + racePts + posGained;
 
         newRaceData[driver] = {
           qual_pos: qualPos || null,
           qual_pts: qualPts,
+          grid_pos: gridPos || null,
           race_pos: racePos,
           race_pts: racePts,
           pos_gained: posGained,
