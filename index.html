@@ -1690,10 +1690,15 @@ function renderManualGrid() {
   const freshOrder = allDrivers.map(name => ({
     name,
     qualPos: raceData[name]?.qual_pos || null,
+    gridPos: raceData[name]?.grid_pos || null,
   })).sort((a, b) => {
-    if (a.qualPos && b.qualPos) return a.qualPos - b.qualPos;
-    if (a.qualPos) return -1;
-    if (b.qualPos) return 1;
+    // For race: sort by grid start position (accounts for penalties); fall back to qual pos
+    // For qualifying: sort by previous qualifying result
+    const aPrimary = (!_manualGridIsQualifying && a.gridPos) ? a.gridPos : a.qualPos;
+    const bPrimary = (!_manualGridIsQualifying && b.gridPos) ? b.gridPos : b.qualPos;
+    if (aPrimary && bPrimary) return aPrimary - bPrimary;
+    if (aPrimary) return -1;
+    if (bPrimary) return 1;
     return a.name.localeCompare(b.name);
   });
 
@@ -1729,7 +1734,11 @@ function _renderManualGridContent() {
     const pos = i + 1;
     const racePts = _manualGridIsQualifying ? 0 : calcRacePts(pos);
     const qualPts = _manualGridIsQualifying ? calcQualPts(pos) : (dr.qualPos ? calcQualPts(dr.qualPos) : (raceData[dr.name]?.qual_pts || 0));
-    const posGained = (!_manualGridIsQualifying && dr.qualPos) ? Math.max(0, dr.qualPos - pos) : 0;
+    // Use the worse of qual pos and grid pos (penalty case) — consistent with API calculation
+    const startPos = (!_manualGridIsQualifying && dr.qualPos && dr.gridPos)
+      ? Math.max(dr.qualPos, dr.gridPos)
+      : (!_manualGridIsQualifying ? (dr.gridPos || dr.qualPos) : null);
+    const posGained = (!_manualGridIsQualifying && startPos) ? Math.max(0, startPos - pos) : 0;
     const totalPts = qualPts + racePts + posGained;
     const player = driverToPlayer[dr.name];
     if (player) teamPts[player] += totalPts;
@@ -1749,7 +1758,11 @@ function _renderManualGridContent() {
       <span class="mg-pos ${posClass}">${pos}</span>
       <span class="live-owner-dot" style="background:${pColor}"></span>
       <span class="mg-name">${dr.name}${constructorBadge(dr.name)}</span>
-      <span class="mg-qual" title="Qualifying-Position">${dr.qualPos ? `Q${dr.qualPos}` : '–'}</span>
+      <span class="mg-qual" title="Startposition">${
+        dr.gridPos && dr.qualPos && dr.gridPos !== dr.qualPos
+          ? `Q${dr.qualPos}<span style="color:var(--red);font-size:0.68rem">→G${dr.gridPos}</span>`
+          : (dr.gridPos || dr.qualPos) ? `G${dr.gridPos || dr.qualPos}` : '–'
+      }</span>
       <span class="mg-pts" style="color:${ptsColor}">${totalPts > 0 ? '+' : ''}${totalPts}</span>
     </div>`;
   }).join('');
