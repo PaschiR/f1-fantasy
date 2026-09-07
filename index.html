@@ -483,6 +483,21 @@ const TEAMS = {
   'Marie':  { drivers: ['Alonso', 'Bottas', 'Colapinto', 'Lawson', 'Perez', 'Stroll'], color: '#ec4899' },
 };
 
+// Race-specific driver stand-ins (e.g. injury/reserve driver swaps).
+// Format: { raceName: { player: { out: 'RegularDriver', in: 'StandInDriver' } } }
+const DRIVER_SUBSTITUTIONS = {
+  'Italien':     { 'Pascal': { out: 'Hadjar', in: 'Tsunoda' } },
+  'Niederlande': { 'Pascal': { out: 'Hadjar', in: 'Tsunoda' } },
+};
+
+// Returns a player's driver roster for a specific race, applying any substitution for that race
+function getTeamDriversForRace(player, race) {
+  const drivers = TEAMS[player].drivers;
+  const sub = DRIVER_SUBSTITUTIONS[race]?.[player];
+  if (!sub) return drivers;
+  return drivers.map(d => d === sub.out ? sub.in : d);
+}
+
 // All 24 races in order (Australia = index 0, does NOT count)
 const RACES = [
   'Australien', 'China', 'Japan', 'USA', 'Kanada', 'Monaco',
@@ -559,7 +574,7 @@ function constructorBadge(driverName) {
 
 // Computed: per-player per-race points
 function getPlayerRacePoints(player, race) {
-  const drivers = TEAMS[player].drivers;
+  const drivers = getTeamDriversForRace(player, race);
   if (CANCELED_RACES.has(race)) return null; // canceled race
   const data = RACE_DATA[race];
   if (!data || Object.keys(data).length === 0) return null; // race not yet played
@@ -936,7 +951,7 @@ function renderRaceDetail() {
 
   // Player summary cards
   const playerSummaries = players.map(player => {
-    const drivers = TEAMS[player].drivers;
+    const drivers = getTeamDriversForRace(player, race);
     const color = TEAMS[player].color;
     let total = 0;
     const driverRows = drivers.map(d => {
@@ -958,7 +973,7 @@ function renderRaceDetail() {
   // Full driver table — grouped by team owner, sorted by points within each group
   const driverRows = Object.keys(TEAMS).map(player => {
     const color = TEAMS[player].color;
-    const teamDrivers = TEAMS[player].drivers
+    const teamDrivers = getTeamDriversForRace(player, race)
       .filter(d => data[d]) // only drivers with data for this race
       .sort((a, b) => (data[b].overall || 0) - (data[a].overall || 0));
     if (teamDrivers.length === 0) return '';
@@ -2211,8 +2226,9 @@ async function fetchLatestResults() {
         DRIVER_CONSTRUCTOR[surname] = r.Constructor.name;
       });
 
-      // All drivers in our game
-      const allDrivers = [...new Set(Object.values(TEAMS).flatMap(t => t.drivers))];
+      // All drivers in our game (+ any race-specific stand-ins so their results get fetched too)
+      const subDrivers = Object.values(DRIVER_SUBSTITUTIONS[raceName] || {}).map(s => s.in);
+      const allDrivers = [...new Set([...Object.values(TEAMS).flatMap(t => t.drivers), ...subDrivers])];
       const newRaceData = {};
 
       allDrivers.forEach(driver => {
