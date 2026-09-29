@@ -486,8 +486,10 @@ const TEAMS = {
 // Race-specific driver stand-ins (e.g. injury/reserve driver swaps).
 // Format: { raceName: { player: { out: 'RegularDriver', in: 'StandInDriver' } } }
 const DRIVER_SUBSTITUTIONS = {
-  'Italien':     { 'Pascal': { out: 'Hadjar', in: 'Tsunoda' } },
   'Niederlande': { 'Pascal': { out: 'Hadjar', in: 'Tsunoda' } },
+  'Italien':     { 'Pascal': { out: 'Hadjar', in: 'Tsunoda' } },
+  'Spanien II':  { 'Pascal': { out: 'Hadjar', in: 'Tsunoda' } },
+  // Aserbaidschan: Hadjar back in the seat — no substitution needed
 };
 
 // Returns a player's driver roster for a specific race, applying any substitution for that race
@@ -2173,7 +2175,9 @@ async function fetchLatestResults() {
     if (!schedResp.ok) throw new Error(`HTTP ${schedResp.status}`);
     const schedData = await schedResp.json();
     const today = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
-    const races = schedData.MRData.RaceTable.Races.filter(r => r.date <= today);
+    const scheduleRaces = schedData?.MRData?.RaceTable?.Races;
+    if (!Array.isArray(scheduleRaces)) throw new Error('Unerwartetes API-Antwortformat (Kalender)');
+    const races = scheduleRaces.filter(r => r.date <= today);
 
     if (races.length === 0) {
       showToast('Noch keine Rennen in 2026 abgeschlossen.', 'error');
@@ -2197,11 +2201,16 @@ async function fetchLatestResults() {
         fetch(`${API_BASE}${round}/qualifying.json?limit=25`),
         fetch(`${API_BASE}${round}/results.json?limit=25`)
       ]);
+      // Skip this race on a bad/rate-limited response instead of aborting the whole refresh
+      if (!qualResp.ok || !raceResp.ok) {
+        console.warn(`Skipping ${raceName}: HTTP ${qualResp.status}/${raceResp.status}`);
+        continue;
+      }
       const qualData = await qualResp.json();
       const raceData = await raceResp.json();
 
-      const qualResults = qualData.MRData.RaceTable.Races[0]?.QualifyingResults || [];
-      const raceResults = raceData.MRData.RaceTable.Races[0]?.Results || [];
+      const qualResults = qualData?.MRData?.RaceTable?.Races?.[0]?.QualifyingResults || [];
+      const raceResults = raceData?.MRData?.RaceTable?.Races?.[0]?.Results || [];
 
       // Skip only if there's literally nothing — qualifying-only data (between Sat + Sun) is valid
       if (qualResults.length === 0 && raceResults.length === 0) continue;
