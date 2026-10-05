@@ -504,7 +504,7 @@ function getTeamDriversForRace(player, race) {
 const RACES = [
   'Australien', 'China', 'Japan', 'USA', 'Kanada', 'Monaco',
   'Spanien', 'Österreich', 'Großbritannien', 'Belgien', 'Ungarn',
-  'Niederlande', 'Italien', 'Spanien II', 'Aserbaidschan', 'Singapur',
+  'Niederlande', 'Italien', 'Spanien II', 'Aserbaidschan', 'Malaysia', 'Singapur',
   'USA II', 'Mexiko', 'Brasilien', 'USA III', 'Katar', 'Abu Dhabi'
 ];
 
@@ -533,6 +533,7 @@ const RACE_DATA = {
   'Italien':       {},
   'Spanien II':    {},
   'Aserbaidschan': {},
+  'Malaysia':      {},
   'Singapur':      {},
   'USA II':        {},
   'Mexiko':        {},
@@ -1105,7 +1106,7 @@ async function renderSchedule() {
     'Canada': '🇨🇦', 'Monaco': '🇲🇨', 'Spain': '🇪🇸', 'Austria': '🇦🇹',
     'UK': '🇬🇧', 'Belgium': '🇧🇪', 'Hungary': '🇭🇺', 'Netherlands': '🇳🇱',
     'Italy': '🇮🇹', 'Azerbaijan': '🇦🇿', 'Singapore': '🇸🇬', 'Mexico': '🇲🇽',
-    'Brazil': '🇧🇷', 'Qatar': '🇶🇦', 'UAE': '🇦🇪', 'Las Vegas': '🇺🇸',
+    'Brazil': '🇧🇷', 'Qatar': '🇶🇦', 'UAE': '🇦🇪', 'Las Vegas': '🇺🇸', 'Malaysia': '🇲🇾',
   };
 
   const getFlag = country => {
@@ -1336,7 +1337,7 @@ const OPENF1_LOCATION_MAP = {
   'Budapest': 'Ungarn', 'Zandvoort': 'Niederlande', 'Monza': 'Italien',
   'Baku': 'Aserbaidschan', 'Marina Bay': 'Singapur', 'Austin': 'USA II',
   'Mexico City': 'Mexiko', 'São Paulo': 'Brasilien', 'Las Vegas': 'USA III',
-  'Lusail': 'Katar', 'Yas Marina': 'Abu Dhabi',
+  'Lusail': 'Katar', 'Yas Marina': 'Abu Dhabi', 'Kuala Lumpur': 'Malaysia',
 };
 
 // Manual start-time overrides for rescheduled sessions (e.g. weather delays/early starts).
@@ -2136,6 +2137,7 @@ const API_NAME_MAP = {
   'Dutch Grand Prix':           'Niederlande',
   'Italian Grand Prix':         'Italien',
   'Azerbaijan Grand Prix':      'Aserbaidschan',
+  'Bahrain Grand Prix in Malaysia': 'Malaysia',
   'Singapore Grand Prix':       'Singapur',
   'United States Grand Prix':   'USA II',
   'Mexico City Grand Prix':     'Mexiko',
