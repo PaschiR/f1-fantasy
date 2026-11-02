@@ -573,6 +573,38 @@ const CANCELED_RACES = new Set(); // No canceled races in 2026
 // Maps driver surname → their F1 constructor (populated from API on first fetch)
 let DRIVER_CONSTRUCTOR = {};
 
+// Persist successfully fetched data across reloads so a flaky/partial fetch never
+// regresses the displayed points back to zero — only ever overwritten by a successful fetch.
+const CACHE_KEY_RACE_DATA = 'f1fantasy_raceData_v1';
+const CACHE_KEY_DRIVER_CONSTRUCTOR = 'f1fantasy_driverConstructor_v1';
+function loadCachedData() {
+  try {
+    const cachedRaceData = JSON.parse(localStorage.getItem(CACHE_KEY_RACE_DATA) || 'null');
+    if (cachedRaceData) Object.assign(RACE_DATA, cachedRaceData);
+    const cachedConstructor = JSON.parse(localStorage.getItem(CACHE_KEY_DRIVER_CONSTRUCTOR) || 'null');
+    if (cachedConstructor) Object.assign(DRIVER_CONSTRUCTOR, cachedConstructor);
+  } catch (_) { /* corrupt cache — ignore, API fetch will repopulate */ }
+}
+function saveCachedData() {
+  try {
+    localStorage.setItem(CACHE_KEY_RACE_DATA, JSON.stringify(RACE_DATA));
+    localStorage.setItem(CACHE_KEY_DRIVER_CONSTRUCTOR, JSON.stringify(DRIVER_CONSTRUCTOR));
+  } catch (_) { /* storage unavailable/quota exceeded — not critical */ }
+}
+
+// Fetches a URL, retrying a couple of times on network-level failures (e.g. Jolpica
+// intermittently dropping CORS headers) before giving up.
+async function fetchWithRetry(url, retries = 2, delayMs = 400) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fetch(url);
+    } catch (err) {
+      if (i === retries) throw err;
+      await new Promise(res => setTimeout(res, delayMs));
+    }
+  }
+}
+
 // F1 2026 constructor styles: short label + color
 const CONSTRUCTOR_STYLE = {
   'Mercedes':          { abbr: 'MER', color: '#00D2BE' },
@@ -2212,6 +2244,7 @@ async function fetchLatestResults(retryCount = 0) {
     }
 
     let updatedCount = 0;
+    const skippedRaces = [];
 
     for (const race of races) {
       const round = parseInt(race.round);
@@ -2225,18 +2258,20 @@ async function fetchLatestResults(retryCount = 0) {
       let qualResp, raceResp;
       try {
         [qualResp, raceResp] = await Promise.all([
-          fetch(`${API_BASE}${round}/qualifying.json?limit=25`),
-          fetch(`${API_BASE}${round}/results.json?limit=25`)
+          fetchWithRetry(`${API_BASE}${round}/qualifying.json?limit=25`),
+          fetchWithRetry(`${API_BASE}${round}/results.json?limit=25`)
         ]);
       } catch (fetchErr) {
         // Jolpica intermittently drops CORS headers on individual requests — don't let
         // one flaky race abort the whole refresh, just skip it and keep going.
         console.warn(`Skipping ${raceName}: ${fetchErr.message}`);
+        skippedRaces.push(raceName);
         continue;
       }
       // Skip this race on a bad/rate-limited response instead of aborting the whole refresh
       if (!qualResp.ok || !raceResp.ok) {
         console.warn(`Skipping ${raceName}: HTTP ${qualResp.status}/${raceResp.status}`);
+        skippedRaces.push(raceName);
         continue;
       }
       const qualData = await qualResp.json();
@@ -2311,6 +2346,8 @@ async function fetchLatestResults(retryCount = 0) {
       updatedCount++;
     }
 
+    saveCachedData();
+
     dot.className = 'api-dot live'; statusText.textContent = 'Verbunden';
     document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString('de-DE');
     
@@ -2321,7 +2358,18 @@ async function fetchLatestResults(retryCount = 0) {
     if (activeTab === 'teams') renderTeamTab();
     if (activeTab === 'drivers') renderDriversTable();
 
-    if (updatedCount === 0) {
+    const MAX_RETRIES = 5;
+    if (skippedRaces.length > 0 && retryCount < MAX_RETRIES) {
+      // Some races failed (likely a flaky CORS/rate-limit hiccup) — retry automatically
+      // instead of silently reporting success with incomplete data.
+      statusText.textContent = `${skippedRaces.length} Rennen übersprungen, erneuter Versuch... (${retryCount + 1}/${MAX_RETRIES})`;
+      setTimeout(() => fetchLatestResults(retryCount + 1), 1000 * 2 ** retryCount);
+      return;
+    }
+
+    if (skippedRaces.length > 0) {
+      showToast(`⚠️ ${updatedCount} Rennen geladen, aber ${skippedRaces.length} konnten nicht geladen werden: ${skippedRaces.join(', ')}. Bitte erneut versuchen.`, 'error');
+    } else if (updatedCount === 0) {
       showToast('ℹ️ Keine neuen Rennen gefunden (alle vorhandenen Daten sind aktuell)', 'success');
     } else {
       showToast(`✅ ${updatedCount} neue Rennen geladen`, 'success');
@@ -2381,6 +2429,7 @@ function showToast(msg, type = 'success') {
 // INIT
 // ============================================================
 window.addEventListener('load', () => {
+  loadCachedData();
   renderStandings();
   document.getElementById('lastUpdated').textContent = '–';
   document.getElementById('apiDot').className = 'api-dot';
