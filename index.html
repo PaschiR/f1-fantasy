@@ -2222,10 +2222,18 @@ async function fetchLatestResults(retryCount = 0) {
       // Australia is fetched so Renn-Details shows it, but it's excluded from standings
 
       // Fetch qualifying results
-      const [qualResp, raceResp] = await Promise.all([
-        fetch(`${API_BASE}${round}/qualifying.json?limit=25`),
-        fetch(`${API_BASE}${round}/results.json?limit=25`)
-      ]);
+      let qualResp, raceResp;
+      try {
+        [qualResp, raceResp] = await Promise.all([
+          fetch(`${API_BASE}${round}/qualifying.json?limit=25`),
+          fetch(`${API_BASE}${round}/results.json?limit=25`)
+        ]);
+      } catch (fetchErr) {
+        // Jolpica intermittently drops CORS headers on individual requests — don't let
+        // one flaky race abort the whole refresh, just skip it and keep going.
+        console.warn(`Skipping ${raceName}: ${fetchErr.message}`);
+        continue;
+      }
       // Skip this race on a bad/rate-limited response instead of aborting the whole refresh
       if (!qualResp.ok || !raceResp.ok) {
         console.warn(`Skipping ${raceName}: HTTP ${qualResp.status}/${raceResp.status}`);
