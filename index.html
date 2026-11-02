@@ -2348,9 +2348,14 @@ async function fetchLatestResults(retryCount = 0) {
 
     saveCachedData();
 
-    dot.className = 'api-dot live'; statusText.textContent = 'Verbunden';
-    document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString('de-DE');
-    
+    // Completeness check against RACE_DATA's actual state (not just this cycle's skips) —
+    // a race could already be covered by the localStorage cache even if it was skipped just now.
+    const expectedRaces = races
+      .map(r => API_NAME_MAP[r.raceName])
+      .filter(name => name && !CANCELED_RACES.has(name));
+    const missingRaces = expectedRaces.filter(name => !RACE_DATA[name] || Object.keys(RACE_DATA[name]).length === 0);
+    const completeCount = expectedRaces.length - missingRaces.length;
+
     // Re-render active tab
     renderStandings();
     const activeTab = document.querySelector('.nav-tab.active')?.dataset?.tab;
@@ -2359,20 +2364,30 @@ async function fetchLatestResults(retryCount = 0) {
     if (activeTab === 'drivers') renderDriversTable();
 
     const MAX_RETRIES = 5;
-    if (skippedRaces.length > 0 && retryCount < MAX_RETRIES) {
-      // Some races failed (likely a flaky CORS/rate-limit hiccup) — retry automatically
-      // instead of silently reporting success with incomplete data.
-      statusText.textContent = `${skippedRaces.length} Rennen übersprungen, erneuter Versuch... (${retryCount + 1}/${MAX_RETRIES})`;
+    if (missingRaces.length > 0 && retryCount < MAX_RETRIES) {
+      // Data is still incomplete — retry automatically instead of silently reporting
+      // success with gaps the user has no way of noticing.
+      statusText.textContent = `${completeCount}/${expectedRaces.length} Rennen, erneuter Versuch... (${retryCount + 1}/${MAX_RETRIES})`;
       setTimeout(() => fetchLatestResults(retryCount + 1), 1000 * 2 ** retryCount);
       return;
     }
 
-    if (skippedRaces.length > 0) {
-      showToast(`⚠️ ${updatedCount} Rennen geladen, aber ${skippedRaces.length} konnten nicht geladen werden: ${skippedRaces.join(', ')}. Bitte erneut versuchen.`, 'error');
-    } else if (updatedCount === 0) {
-      showToast('ℹ️ Keine neuen Rennen gefunden (alle vorhandenen Daten sind aktuell)', 'success');
+    document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString('de-DE');
+
+    if (missingRaces.length > 0) {
+      // Retries exhausted and data is still incomplete — keep this visible in the status bar
+      // (not just a transient toast) so an incomplete state is never mistaken for success.
+      dot.className = 'api-dot error';
+      statusText.textContent = `Unvollständig: ${completeCount}/${expectedRaces.length} Rennen`;
+      showToast(`⚠️ Nur ${completeCount}/${expectedRaces.length} Rennen geladen. Fehlend: ${missingRaces.join(', ')}. Bitte erneut versuchen.`, 'error');
     } else {
-      showToast(`✅ ${updatedCount} neue Rennen geladen`, 'success');
+      dot.className = 'api-dot live';
+      statusText.textContent = `Verbunden (${completeCount}/${expectedRaces.length} Rennen)`;
+      if (updatedCount === 0) {
+        showToast(`✅ Alle ${completeCount} Rennen vollständig (keine neuen Ergebnisse)`, 'success');
+      } else {
+        showToast(`✅ Alle ${completeCount} Rennen vollständig geladen (${updatedCount} aktualisiert)`, 'success');
+      }
     }
   } catch (e) {
     console.error('API Error:', e);
