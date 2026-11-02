@@ -490,6 +490,9 @@ const DRIVER_SUBSTITUTIONS = {
   'Italien':     { 'Pascal': { out: 'Hadjar', in: 'Tsunoda' } },
   'Spanien II':  { 'Pascal': { out: 'Hadjar', in: 'Tsunoda' } },
   // Aserbaidschan: Hadjar back in the seat — no substitution needed
+  'Mexiko':      { 'Pascal': { out: 'Ocon', in: 'Hirakawa' } },
+  // Ocon was dropped by Haas after Mexiko — his permanent replacement from Brasilien
+  // onward is still unknown; add a 'Brasilien' (and later races) entry here once confirmed.
 };
 
 // Returns a player's driver roster for a specific race, applying any substitution for that race
@@ -498,6 +501,26 @@ function getTeamDriversForRace(player, race) {
   const sub = DRIVER_SUBSTITUTIONS[race]?.[player];
   if (!sub) return drivers;
   return drivers.map(d => d === sub.out ? sub.in : d);
+}
+
+// Returns every driver a player has ever fielded (static roster + all race-specific stand-ins)
+function getAllDriversForPlayer(player) {
+  const base = TEAMS[player].drivers;
+  const standIns = Object.values(DRIVER_SUBSTITUTIONS)
+    .map(raceSubs => raceSubs[player]?.in)
+    .filter(Boolean);
+  return [...new Set([...base, ...standIns])];
+}
+
+// Finds which player's team a driver belongs to, checking stand-in substitutions too
+function getDriverOwner(driver) {
+  const direct = Object.keys(TEAMS).find(p => TEAMS[p].drivers.includes(driver));
+  if (direct) return direct;
+  for (const raceSubs of Object.values(DRIVER_SUBSTITUTIONS)) {
+    const player = Object.keys(raceSubs).find(p => raceSubs[p].in === driver);
+    if (player) return player;
+  }
+  return null;
 }
 
 // All 24 races in order (Australia = index 0, does NOT count)
@@ -1032,8 +1055,8 @@ function renderDriversTable() {
   const countingRaces = RACES.slice(FIRST_COUNTING_RACE);
   const doneRaces = countingRaces.filter(r => RACE_DATA[r] && Object.keys(RACE_DATA[r]).length > 0);
 
-  // All unique drivers across all teams
-  const allDrivers = [...new Set(Object.values(TEAMS).flatMap(t => t.drivers))].sort();
+  // All unique drivers across all teams, including race-specific stand-ins
+  const allDrivers = [...new Set(Object.keys(TEAMS).flatMap(p => getAllDriversForPlayer(p)))].sort();
 
   // Compute overall for each driver
   const driverTotals = {};
@@ -1052,7 +1075,7 @@ function renderDriversTable() {
   const sorted = [...allDrivers].sort((a, b) => driverTotals[b] - driverTotals[a]);
 
   const rows = sorted.map(d => {
-    const owner = Object.keys(TEAMS).find(p => TEAMS[p].drivers.includes(d)) || '–';
+    const owner = getDriverOwner(d) || '–';
     const color = owner !== '–' ? TEAMS[owner].color : 'var(--muted)';
     const raceCells = driverRacePts[d].map(pts => {
       const cl = pts > 0 ? 'pts-pos' : pts < 0 ? 'pts-neg' : 'pts-zero';
@@ -1173,7 +1196,7 @@ function selectTeam(player) {
 
 function renderTeamDetail(player) {
   const content = document.getElementById('teamDetailContent');
-  const drivers = TEAMS[player].drivers;
+  const drivers = getAllDriversForPlayer(player);
   const teamColor = TEAMS[player].color;
 
   const allCountingRaces = RACES.slice(FIRST_COUNTING_RACE).filter(r => !CANCELED_RACES.has(r));
@@ -1702,7 +1725,7 @@ function renderManualGrid() {
     _manualGridIsQualifying = raceEntry.length === 0 || !raceEntry.some(v => v.race_pos !== null);
   }
 
-  const allDrivers = [...new Set(Object.values(TEAMS).flatMap(t => t.drivers))];
+  const allDrivers = [...new Set(Object.keys(TEAMS).flatMap(p => getTeamDriversForRace(p, _manualGridRace)))];
   const raceData = RACE_DATA[_manualGridRace] || {};
 
   const freshOrder = allDrivers.map(name => ({
@@ -2161,7 +2184,7 @@ function calcRacePts(pos) {
   return 0;
 }
 
-async function fetchLatestResults() {
+async function fetchLatestResults(retryCount = 0) {
   const btn = document.getElementById('refreshBtn');
   const dot = document.getElementById('apiDot');
   const statusText = document.getElementById('apiStatusText');
@@ -2297,6 +2320,21 @@ async function fetchLatestResults() {
     }
   } catch (e) {
     console.error('API Error:', e);
+    // Mobile browsers often fire the initial fetch before the network interface is ready — retry silently.
+    // Use more attempts with exponential backoff since cellular/WiFi reconnects can take several seconds.
+    const isNetworkError = e instanceof TypeError || /failed to fetch/i.test(e.message);
+    const MAX_RETRIES = 5;
+    if (isNetworkError && retryCount < MAX_RETRIES) {
+      statusText.textContent = `Erneuter Versuch... (${retryCount + 1}/${MAX_RETRIES})`;
+      if (!navigator.onLine) {
+        // Genuinely offline — wait for the browser to report a connection instead of polling blindly
+        window.addEventListener('online', () => fetchLatestResults(retryCount + 1), { once: true });
+      } else {
+        const delay = Math.min(1000 * 2 ** retryCount, 10000); // 1s, 2s, 4s, 8s, 10s
+        setTimeout(() => fetchLatestResults(retryCount + 1), delay);
+      }
+      return;
+    }
     dot.className = 'api-dot error'; statusText.textContent = 'Offline / Fehler';
     showToast(`⚠️ API-Fehler: ${e.message}. Lokale Daten wurden nicht verändert.`, 'error');
   }
